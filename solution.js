@@ -21,20 +21,22 @@ var TileEnum = {
     OBJECT: 2,
     WALL: 3,
     TARGET: 4,
-    ENEMY: 5,
-    ENEMY_1: 6,
-    ENEMY_2: 7
+    ENEMY: 5
 };
 
 var StateEnum = {
     INIT: 0,
-    DISCOVERING_POSITION: 1,
-    TAKING_POSITION: 2,
-    SEARCHING_ENEMIES: 3,
-    SEARCHING_TARGET: 4
+    ANALYSING_TARGET: 1,
+    SEEK_AND_DESTROY_ENEMY: 2,
+    SEEK_AND_DESTROY_TARGET: 3,
+    SEARCHING_POSITION: 4,
+    TAKING_POSITION: 5,
+    SEARCHING_ENEMY: 6,
+    SEARCHING_TARGET: 7
 };
 
-var MAX_DISCOVERY_ROUNDS = 8;
+var MAX_DISCOVERY_ROUNDS = 5;
+var MAX_HOLDING_POSITION = MAX_DISCOVERY_ROUNDS+10;
 
 var FUEL_TURN = 1;
 var FUEL_FORWARD = 1+FUEL_TURN;
@@ -43,23 +45,104 @@ var FUEL_LEFT = 5+FUEL_TURN;
 var FUEL_RIGHT = 5+FUEL_TURN;
 var FUEL_ATTACKED = 50;
 
-var gActionUsed = false;
-// we will orient NORTH the initial direction of the tank
 var gDirection = DirectionEnum.NORTH;
 var gMap = [];
 var gWidth = 0;
 var gHeight = 0;
 var gX = 0;
 var gY = 0;
-var gDestTile = {x:0, y:0};
 var gLidar = [0,0,0,0];
 
+var gLastState = StateEnum.INIT;
 var gState = StateEnum.INIT;
 
 var gFuel = 0;
-var gRound = 0;
-var gAttacked = false;
+var gRound = 1;
+
+var	gPath = null;
+var gCandidates = [];
+
 var gTargetConfirmed = false;
+var gAttacked = false;
+var gHoldLonger = 0;
+
+//---------------------------------------------------------------------------
+// Update Function
+//---------------------------------------------------------------------------
+exports.update = function() {
+	try {
+	    if (gState === StateEnum.INIT) {
+	    	console.log("Battle begin!");
+	    	console.log("======= Round: "+gRound+" =======");
+	        initMap();
+	    } else {
+	    	console.log("======= Round: "+gRound+" =======");
+	        updateMap();
+	    }
+	    if (identifyTarget()) {
+	    	if (gTargetConfirmed) {
+	    		gState = gLastState;
+	    		gHoldLonger += 5;
+	        	fireCannon();
+	    	}
+	    } else {
+	        switch(gDirection) {
+	            case DirectionEnum.NORTH:
+	                setTile(gX,gY+gLidar[gDirection],TileEnum.WALL);
+	                break;
+	            case DirectionEnum.EAST:
+	                setTile(gX+gLidar[gDirection],gY,TileEnum.WALL);
+	                break;
+	            case DirectionEnum.SOUTH:
+	                setTile(gX,gY-gLidar[gDirection],TileEnum.WALL);
+	                break;
+	            case DirectionEnum.WEST:
+	                setTile(gX-gLidar[gDirection],gY,TileEnum.WALL);
+	                break;
+	        }
+	    }
+	    if (gState === StateEnum.ANALYSING_TARGET) {
+	    	gState = gLastState;
+    		console.log("Current State 106: "+gState);
+	        throw {isAction: true, action: "Analysing Target"};
+	    }
+	    if (gState === StateEnum.SEARCHING_POSITION) {
+	        console.log("Discovering Position");
+	    	discoveringPosition();
+	    }
+	    if (gState === StateEnum.TAKING_POSITION) {
+	    	console.log("Taking Position");
+	    	takePosition();
+	    }
+	    if (gState === StateEnum.SEARCHING_ENEMY) {
+	        console.log("Searching Enemy");
+	    	lookForEnemy();
+	    }
+	    if (gState === StateEnum.SEARCHING_TARGET) {
+	        console.log("Searching Target");
+	    	lookForTarget();
+	    }
+	    if (gState === StateEnum.SEEK_AND_DESTROY_ENEMY) {
+	        console.log("Seek and Destroy !!!");
+	    	seekAndDestroy(TileEnum.ENEMY);
+	    }
+	    if (gState === StateEnum.SEEK_AND_DESTROY_TARGET) {
+	        console.log("Seek and Destroy !!!");
+	    	seekAndDestroy(TileEnum.TARGET);
+	    }
+	} catch(e) {
+		if (e.isAction) {
+			console.log(e.action);
+			console.log("Ending turn...");			
+		} else {
+			throw(e);
+		}
+	}
+};
+
+//---------------------------------------------------------------------------
+// Wrapper to API functions
+//---------------------------------------------------------------------------
 
 var getLidar = function() {
     gLidar[gDirection] = api.lidarFront();    
@@ -68,6 +151,119 @@ var getLidar = function() {
     gLidar[(gDirection+3)%4] = api.lidarLeft();
     console.log("Lidar: "+gLidar);
 };
+
+var identifyTarget = function() {
+	// we confirmed a target if the enemy is on the next tile (both type 1&2)
+	// and if we check a progressing enemy (type 2)
+	if (api.identifyTarget()) {
+		gTargetConfirmed = false;
+		if ((gState !== StateEnum.SEEK_AND_DESTROY_ENEMY) && 
+			(gState !== StateEnum.SEEK_AND_DESTROY_TARGET)) {
+			gLastState = gState;
+		}
+		gState = StateEnum.ANALYSING_TARGET;
+		if (gLidar[gDirection] === 1) {
+			gTargetConfirmed = true;
+			return true;
+		}
+		switch(gDirection) {
+	        case DirectionEnum.NORTH:
+	        	if (gMap[gX][gY+gLidar[gDirection]].value === TileEnum.TARGET) {
+	        		gTargetConfirmed = true;
+	        	}
+	        	if (gMap[gX][gY+gLidar[gDirection]+1].value === TileEnum.ENEMY) {
+	        		gTargetConfirmed = true;
+	        	}
+	            break;
+	        case DirectionEnum.EAST:
+	        	if (gMap[gX+gLidar[gDirection]][gY].value === TileEnum.TARGET) {
+	        		gTargetConfirmed = true;
+	        	}
+	        	if (gMap[gX+gLidar[gDirection]+1][gY].value === TileEnum.ENEMY) {
+	        		gTargetConfirmed = true;
+	        	}
+	            break;
+	        case DirectionEnum.SOUTH:
+	        	if (gMap[gX][gY-gLidar[gDirection]].value === TileEnum.TARGET) {
+	        		gTargetConfirmed = true;
+	        	}
+	        	if (gMap[gX][gY-gLidar[gDirection]-1].value === TileEnum.ENEMY) {
+	        		gTargetConfirmed = true;
+	        	}
+	            break;
+	        case DirectionEnum.WEST:
+	        	if (gMap[gX-gLidar[gDirection]][gY].value === TileEnum.TARGET) {
+	        		gTargetConfirmed = true;
+	        	}
+	        	if (gMap[gX-gLidar[gDirection]-1][gY].value === TileEnum.ENEMY) {
+	        		gTargetConfirmed = true;
+	        	}
+	            break;
+		}
+		return true;
+	} else {
+		return false;
+	}
+};
+
+var fireCannon = function() {
+    api.fireCannon();
+    throw {isAction: true, action: "Fire !!!"};
+};
+
+var moveForward = function() {
+    switch(gDirection) {
+        case DirectionEnum.NORTH:
+            gY++;
+            break;
+        case DirectionEnum.EAST:
+            gX++;
+            break;
+        case DirectionEnum.SOUTH:
+            gY--;
+            break;
+        case DirectionEnum.WEST:
+            gX--;
+            break;
+    }
+    api.moveForward();
+    throw {isAction: true, action: "Going Forward!", moved: true};
+};
+
+var moveBackward = function() {
+    switch(gDirection) {
+        case DirectionEnum.NORTH:
+        	gY--;
+            break;
+        case DirectionEnum.EAST:
+        	gX--;
+            break;
+        case DirectionEnum.SOUTH:
+        	gY++;
+            break;
+        case DirectionEnum.WEST:
+        	gX++;
+            break;
+    }
+    api.moveBackward();
+    throw {isAction: true, action: "Going Backward!", moved: true};
+};
+
+var turnLeft = function() {
+    gDirection = (gDirection+3)%4;
+    api.turnLeft();
+    throw {isAction: true, action: "Turning Left!", moved: false};
+};
+
+var turnRight = function() {
+    gDirection = (gDirection+1)%4;
+    api.turnRight();
+    throw {isAction: true, action: "Turning Right!", moved: false};
+};
+
+//---------------------------------------------------------------------------
+// Map Utility functions
+//---------------------------------------------------------------------------
 
 var createMap = function(width, height) {
     var result = new Array(width);
@@ -91,7 +287,10 @@ var initMap = function() {
     // init our coordinates
     gX = gLidar[DirectionEnum.WEST];
     gY = gLidar[DirectionEnum.SOUTH];
+
+    // TODO: check if we need this as init.
     gDestTile = {x: gX, y: gY};
+
     // init the first visible tiles on map
     setTile(gX,0,TileEnum.OBJECT);
     for (var i=1; i<gLidar[DirectionEnum.NORTH]+gLidar[DirectionEnum.SOUTH]; i++) {
@@ -103,26 +302,19 @@ var initMap = function() {
         setTile(j,gY,TileEnum.EMPTY);
     }
     setTile(gLidar[DirectionEnum.EAST]+gLidar[DirectionEnum.WEST],gY,TileEnum.OBJECT);
+    
     // switching to next state
-    gState = StateEnum.DISCOVERING_POSITION;
+    gLastState = gState;
+    gState = StateEnum.SEARCHING_POSITION;
     gFuel = api.currentFuel();
+    gRound++;
 
-    printMap(gMap);
+    // print infos
+    console.log("x: "+gX+", y: "+gY+" dir: "+gDirection);
+    printMap();
     console.log("Starting fuel: "+gFuel);
-};
-
-var setTile = function(x,y,val) {
-	if (gMap[x][y].value === TileEnum.ENEMY) {
-		// TODO: mark the orange enemy on line and column
-		console.log("Enemy disappeared...");
-	}
-	gMap[x][y] = {reachable: true, value: val};
-	if (val === TileEnum.EMPTY) {
-		gMap[x-1][y].reachable = true;
-		gMap[x+1][y].reachable = true;
-		gMap[x][y-1].reachable = true;
-		gMap[x][y+1].reachable = true;
-	}
+    console.log("State: "+gState);
+    console.log("Last State: "+gLastState);
 };
 
 var updateMap = function() {
@@ -130,8 +322,10 @@ var updateMap = function() {
     var tX = 0, tY = 0;
     var uX = 0, uY = 0;
 
+    // scanning in all direction
     getLidar();
 
+    // check if border increased
     if (gY-gLidar[DirectionEnum.SOUTH]<0) {
         tY += gLidar[DirectionEnum.SOUTH] - gY;
         toBeIncreased = true;
@@ -164,7 +358,7 @@ var updateMap = function() {
     } else if (gMap[gX][gY-gLidar[DirectionEnum.SOUTH]].value === TileEnum.UNKNOWN) {
     	gMap[gX][gY-gLidar[DirectionEnum.SOUTH]] = {reachable: true, value: TileEnum.OBJECT};
     } else {
-        //console.log("Col Down: "+gMap[gX][gY-gLidar[DirectionEnum.SOUTH]]);
+        //console.log("Problem updating tiles... 1");
     }
     for (var i=gY-gLidar[DirectionEnum.SOUTH]+1; i<gY+gLidar[DirectionEnum.NORTH]; i++) {
         setTile(gX,i,TileEnum.EMPTY);
@@ -172,22 +366,22 @@ var updateMap = function() {
     if (gMap[gX][gY+gLidar[DirectionEnum.NORTH]].value === TileEnum.EMPTY) {
     	gMap[gX][gY+gLidar[DirectionEnum.NORTH]] = {reachable: true, value: TileEnum.ENEMY};
     } else if (gMap[gX][gY+gLidar[DirectionEnum.NORTH]].value === TileEnum.OBJECT) {
-    	gMap[gX][gY+gLidar[DirectionEnum.NORTH]] = {reachable: false, value: TileEnum.TARGET};
+    	gMap[gX][gY+gLidar[DirectionEnum.NORTH]] = {reachable: true, value: TileEnum.TARGET};
     } else if (gMap[gX][gY+gLidar[DirectionEnum.NORTH]].value === TileEnum.UNKNOWN) {
-    	gMap[gX][gY+gLidar[DirectionEnum.NORTH]] = {reachable: false, value: TileEnum.OBJECT};
+    	gMap[gX][gY+gLidar[DirectionEnum.NORTH]] = {reachable: true, value: TileEnum.OBJECT};
     } else {
-        //console.log("Col Up: "+gMap[gX][gY+gLidar[DirectionEnum.NORTH]]);
+        //console.log("Problem updating tiles... 2");
     }
 
-    // updating column taking into account previous state
+    // updating line taking into account previous state
     if (gMap[gX-gLidar[DirectionEnum.WEST]][gY].value === TileEnum.EMPTY) {
     	gMap[gX-gLidar[DirectionEnum.WEST]][gY] = {reachable: true, value: TileEnum.ENEMY};
     } else if (gMap[gX-gLidar[DirectionEnum.WEST]][gY].value === TileEnum.OBJECT) {
-    	gMap[gX-gLidar[DirectionEnum.WEST]][gY] = {reachable: false, value: TileEnum.TARGET};
+    	gMap[gX-gLidar[DirectionEnum.WEST]][gY] = {reachable: true, value: TileEnum.TARGET};
     } else if (gMap[gX-gLidar[DirectionEnum.WEST]][gY].value === TileEnum.UNKNOWN) {
-    	gMap[gX-gLidar[DirectionEnum.WEST]][gY] = {reachable: false, value: TileEnum.OBJECT};
+    	gMap[gX-gLidar[DirectionEnum.WEST]][gY] = {reachable: true, value: TileEnum.OBJECT};
     } else {
-        //console.log("Line Left: "+gMap[gX-gLidar[DirectionEnum.WEST]][gY]);
+        //console.log("Problem updating tiles... 3");
     }
     for (var j=gX-gLidar[DirectionEnum.WEST]+1; j<gX+gLidar[DirectionEnum.EAST]; j++) {
         setTile(j,gY,TileEnum.EMPTY);
@@ -195,11 +389,11 @@ var updateMap = function() {
     if (gMap[gX+gLidar[DirectionEnum.EAST]][gY].value === TileEnum.EMPTY) {
     	gMap[gX+gLidar[DirectionEnum.EAST]][gY] = {reachable: true, value: TileEnum.ENEMY};
     } else if (gMap[gX+gLidar[DirectionEnum.EAST]][gY].value === TileEnum.OBJECT) {
-    	gMap[gX+gLidar[DirectionEnum.EAST]][gY] = {reachable: false, value: TileEnum.TARGET};
+    	gMap[gX+gLidar[DirectionEnum.EAST]][gY] = {reachable: true, value: TileEnum.TARGET};
     } else if (gMap[gX+gLidar[DirectionEnum.EAST]][gY].value === TileEnum.UNKNOWN) {
-    	gMap[gX+gLidar[DirectionEnum.EAST]][gY] = {reachable: false, value: TileEnum.OBJECT};
+    	gMap[gX+gLidar[DirectionEnum.EAST]][gY] = {reachable: true, value: TileEnum.OBJECT};
     } else {
-        //console.log("Line Right: "+gMap[gX+gLidar[DirectionEnum.EAST]][gY]);
+        //console.log("Problem updating tiles... 4");
     }
 
     if (api.currentFuel() < (gFuel - FUEL_ATTACKED)) {
@@ -208,12 +402,35 @@ var updateMap = function() {
     } else {
     	gAttacked = false;
     }
+
     gFuel = api.currentFuel();
     gRound++;
 
-    console.log("x: "+gX+", y: "+gY+"dir: "+gDirection);
-    printMap(gMap);
+    console.log("x: "+gX+", y: "+gY+" dir: "+gDirection);
+    printMap();
     console.log("Current fuel: "+gFuel);
+    console.log("State: "+gState);
+    console.log("Last State: "+gLastState);
+};
+
+var setTile = function(x, y, val) {
+	if ((gMap[x][y].value === TileEnum.ENEMY) ||
+		(gMap[x][y].value === TileEnum.OBJECT)) {
+		// only EMPTY value could replace an ENEMY value
+		if (val !== TileEnum.EMPTY) {
+			console.log("Setting tile value... "+val);
+		} else {
+			gMap[x][y].enemySpot = true;		
+		}
+	}
+	gMap[x][y].reachable = true;
+	gMap[x][y].value = val;
+	if (val === TileEnum.EMPTY) {
+		gMap[x-1][y].reachable = true;
+		gMap[x+1][y].reachable = true;
+		gMap[x][y-1].reachable = true;
+		gMap[x][y+1].reachable = true;
+	}
 };
 
 var increaseMap = function(tX, tY, newWidth, newHeight) {
@@ -230,182 +447,185 @@ var increaseMap = function(tX, tY, newWidth, newHeight) {
     return result;
 };
 
-var printMap = function(map) {
+var printMap = function() {
     for(var i=0; i<gHeight; i++) {
         var s = "";
         for (j=0; j<gWidth; j++) {
-            s+=map[j][gHeight-1-i].value;
+        	if ((j===gX) && ((gHeight-1-i)===gY)) {
+	            s+='X';
+        	} else {
+	            s+=gMap[j][gHeight-1-i].value;
+        	}
         }
         console.log(s);
     }
 };
 
-var scanMap = function(map) {
-	var result = 0;
+// TODO: rename and optimize to find the closest...
+var scanMap = function() {
     for(var i=0; i<gWidth; i++) {
         for (j=0; j<gHeight; j++) {
-            if (gMap[i][j].value === TileEnum.ENEMY) {
-            	result++;
+            if (gMap[i][j].enemySpot) {
+            	return {found: true, tile: {x:i, y:j}};
             }
         }
     }
-    return result;
+    return {found: false};
 };
 
-var moveForward = function() {
-	if (gActionUsed) {
-		return;
-	}
-	gActionUsed = true;
-	console.log("Going Forward!");
-    switch(gDirection) {
-        case DirectionEnum.NORTH:
-            gY++;
-            break;
-        case DirectionEnum.EAST:
-            gX++;
-            break;
-        case DirectionEnum.SOUTH:
-            gY--;
-            break;
-        case DirectionEnum.WEST:
-            gX--;
-            break;
-    }
-    api.moveForward();
-};
+var wallMap = function() {
+	for (var i = 0; i < gWidth; i++) {
+		gMap[i][0].value = TileEnum.WALL;
+		gMap[i][gHeight-1].value = TileEnum.WALL;
+	};
+	for (var i = 0; i < gHeight; i++) {
+		gMap[0][i].value = TileEnum.WALL;
+		gMap[gWidth-1][i].value = TileEnum.WALL;
+	};
+	printMap();
+}
 
-var moveBackward = function() {
-	if (gActionUsed) {
-		return;
-	}
-	gActionUsed = true;
-	console.log("Going Backward!");	
-    switch(gDirection) {
-        case DirectionEnum.NORTH:
-        	gY--;
-            break;
-        case DirectionEnum.EAST:
-        	gX--;
-            break;
-        case DirectionEnum.SOUTH:
-        	gY++;
-            break;
-        case DirectionEnum.WEST:
-        	gX++;
-            break;
-    }
-    api.moveBackward();
-};
-
-var turnLeft = function() {
-	if (gActionUsed) {
-		return;
-	}
-	gActionUsed = true;
-	console.log("Turning Left!");	
-    gDirection = (gDirection+3)%4;
-    api.turnLeft();
-};
-
-var turnRight = function() {
-	if (gActionUsed) {
-		return;
-	}
-	gActionUsed = true;
-	console.log("Turning Right!");	
-    gDirection = (gDirection+1)%4;
-    api.turnRight();
-};
-
-var fireCannon = function() {
-	if (gActionUsed) {
-		return;
-	}
-	gActionUsed = true;
-	console.log("Fire !!!");
-    api.fireCannon();
-};
-
-var identifyTarget = function() {
-
-};
-
-var seekAndDestroy = function() {
-    switch(gDirection) {
-        case DirectionEnum.NORTH:
-        	console.log("seekAndDestroy NORTH");
-            if (gMap[gX+gLidar[DirectionEnum.EAST]][gY].value === TileEnum.ENEMY) {
-                turnRight();
-            } else {
-                turnLeft();
-            }
-            break;
-        case DirectionEnum.EAST:
-        	console.log("seekAndDestroy EAST");
-            if (gMap[gX][gY-gLidar[DirectionEnum.SOUTH]].value === TileEnum.ENEMY) {
-                turnRight();
-            } else {
-                turnLeft();
-            }
-            break;
-        case DirectionEnum.SOUTH:
-        	console.log("seekAndDestroy SOUTH");
-            if (gMap[gX-gLidar[DirectionEnum.WEST]][gY].value === TileEnum.ENEMY) {
-                turnRight();
-            } else {
-                turnLeft();
-            }
-            break;
-        case DirectionEnum.WEST:
-        	console.log("seekAndDestroy WEST");
-            if (gMap[gX][gY+gLidar[DirectionEnum.NORTH]].value === TileEnum.ENEMY) {
-                turnRight();
-            } else {
-                turnLeft();
-            }
-            break;
-        default:
-        	console.log("seekAndDestroy Unknown direction: "+gDirection);
-    }
-};
+//---------------------------------------------------------------------------
+// Main algorithmic functions
+//---------------------------------------------------------------------------
 
 var discoveringPosition = function() {
 	if (gRound > MAX_DISCOVERY_ROUNDS) {
+		gPath = null;
+		gLastState = StateEnum.TAKING_POSITION;
 		gState = StateEnum.TAKING_POSITION;
-		gPositionTile = getPositionTile(gMap);
-	    console.log("Taking Position:");
-	    printTile(gPositionTile);
-		getShortestPath(gPositionTile.x, gPositionTile.y);
-	    console.log("Position Path:");
-	    printPath(gSearchPath);
+	} else {
+		exploreMap();
 	}
 };
 
 var takePosition = function() {
-
-};
-
-var	gSearchPath = {found: false, fuelUsed: 0, step: 0, steps: []};
-
-var lookForEnemies = function() {
-	if (checkLidarTiles()) {
-		return;
-	}
-	if (gSearchPath.step === gSearchPath.steps.length) {
-	    gDestTile = getNextTargetTile(gMap);
-	    if (!gDestTile) {
-	    	return;
-	    }
-	    console.log("Next destination:");
-	    printTile(gDestTile);
-		getShortestPath(gDestTile.x, gDestTile.y);
-	    console.log("Next path:");
-	    printPath(gSearchPath);
+	if (gPath) {
+		performNextStep();
+		if (gRound > MAX_HOLDING_POSITION+gHoldLonger) {
+			gPath = null;
+			gLastState = StateEnum.SEARCHING_ENEMY;
+			gState = StateEnum.SEARCHING_ENEMY;
+		}
 	} else {
-		performNextStep(gSearchPath);
+		var gTile = computePositionTile();
+	    console.log("Taking Position at:");
+	    printTile(gTile);
+		getPath(gTile.x, gTile.y, tileCandidates);
+	    console.log("Position Path:");
+	    printPath(gPath);
+		performNextStep();
 	}
 };
+
+var lookForEnemy = function() {
+	if (gPath) {
+		if (gPath.isArrived) {
+			gPath = null;
+			gLastState = gState;
+			gState = StateEnum.SEEK_AND_DESTROY_ENEMY;
+		} else {
+			performNextStep();
+		}
+	} else {
+		var gTile = computeNextEnemy();
+		if (gTile) {
+		    console.log("Next enemy at:");
+		    printTile(gTile);
+			getPath(gTile.x, gTile.y, tileCandidates);
+		    console.log("Next path:");
+		    printPath(gPath);
+			performNextStep();
+		} else {
+			exploreMap();
+		}
+	}
+};
+
+var lookForTarget = function() {
+	if (gPath) {
+		if (gPath.isArrived) {
+			gPath = null;
+			gLastState = gState;
+			gState = StateEnum.SEEK_AND_DESTROY_TARGET;
+		} else {
+			performNextStep();
+		}
+	} else {
+		var gTile = computeNextTarget();
+    	if (gTile) {
+		    console.log("Next target at:");
+		    printTile(gTile);
+			getPath(gTile.x, gTile.y, viewCandidates);
+		    console.log("Next path:");
+		    printPath(gPath);
+			performNextStep();
+    	}
+	}
+};
+
+var exploreMap = function() {
+	if (gPath && !gPath.isArrived) {
+		performNextStep();
+	} else {
+    	var gTile = computeNextTile();
+    	if (gTile) {
+		    console.log("Next destination at:");
+		    printTile(gTile);
+			getPath(gTile.x, gTile.y, viewCandidates);
+		    console.log("Next path:");
+		    printPath(gPath);
+			performNextStep();
+    	}
+	}
+};
+
+var seekAndDestroy = function(type) {
+	if (checkPresence(type)) {
+	    switch(gDirection) {
+	        case DirectionEnum.NORTH:
+	        	console.log("seekAndDestroy NORTH");
+	            if (gMap[gX+gLidar[DirectionEnum.EAST]][gY].value === type) {
+	                turnRight();
+	            } else {
+	                turnLeft();
+	            }
+	            break;
+	        case DirectionEnum.EAST:
+	        	console.log("seekAndDestroy EAST");
+	            if (gMap[gX][gY-gLidar[DirectionEnum.SOUTH]].value === type) {
+	                turnRight();
+	            } else {
+	                turnLeft();
+	            }
+	            break;
+	        case DirectionEnum.SOUTH:
+	        	console.log("seekAndDestroy SOUTH");
+	            if (gMap[gX-gLidar[DirectionEnum.WEST]][gY].value === type) {
+	                turnRight();
+	            } else {
+	                turnLeft();
+	            }
+	            break;
+	        case DirectionEnum.WEST:
+	        	console.log("seekAndDestroy WEST");
+	            if (gMap[gX][gY+gLidar[DirectionEnum.NORTH]].value === type) {
+	                turnRight();
+	            } else {
+	                turnLeft();
+	            }
+	            break;
+	        default:
+	        	console.log("seekAndDestroy Unknown direction: "+gDirection);
+	    }		
+	} else {
+		gState = gLastState;
+	}
+};
+
+//---------------------------------------------------------------------------
+// Misc Utility Functions
+//---------------------------------------------------------------------------
 
 var printTile = function(tile) {
 	console.log(tile.x+","+tile.y);
@@ -419,108 +639,78 @@ var printPath = function(path) {
     }
 };
 
-var checkLidarTiles = function() {
-	if (gMap[gX][gY+gLidar[DirectionEnum.NORTH]].value === TileEnum.OBJECT) {
-		return true;
-	}
-	if (gMap[gX][gY-gLidar[DirectionEnum.SOUTH]].value === TileEnum.OBJECT) {
-		return true;
-	}
-	if (gMap[gX-gLidar[DirectionEnum.WEST]][gY].value === TileEnum.OBJECT) {
-		return true;
-	}
-	if (gMap[gX+gLidar[DirectionEnum.EAST]][gY].value === TileEnum.OBJECT) {
-		return true;
-	}
-	return false;
-};
-
-var getNextTargetTile = function(map) {
-	var distance = 1;
-	var maxDistance = computeMaxDistance(gX,gY);
-	var result = {found: false};
-	while ((!result.found)&&(distance<=maxDistance)) {
-		result = checkTargetAtDistance(distance);
-		distance++;
-	}
-	if (!result.found) {
-    	gState = StateEnum.SEARCHING_TARGET;
-    	return null;
-	}
-	return result.tile;
-};
-
 var computeMaxDistance = function(x,y) {
 	return Math.max(
-		x,
-		gWidth-x-1,
-		y,
-		gHeight-y-1);
+		x+y,
+		x+gHeight-y-1,
+		y+gWidth-x-1,
+		gWidth-x-1+gHeight-y-1
+	);
 };
 
-var checkTargetAtDistance = function(distance) {
-	console.log("checkTargetAtDistance: "+gX+","+gY+" at distance "+distance);
+// TODO: update the part that was deleted (namely check on direct line...)
+var checkTargetAtDistance = function(distance, type) {
     switch(gDirection) {
         case DirectionEnum.NORTH:
         	for (i=1; i<=distance; i++) {
-		    	if (isTargetReachable(gX-i,gY+distance-i)) {
+		    	if (isTargetReachable(gX-i,gY+distance-i, type)) {
 		    		return {found: true, tile:{x:gX-i, y:gY+distance-i}};
 		    	}
-		    	if (isTargetReachable(gX+i,gY+distance-i)) {
+		    	if (isTargetReachable(gX+i,gY+distance-i, type)) {
 		    		return {found: true, tile:{x:gX+i, y:gY+distance-i}};
 		    	}
-	        	if (isTargetReachable(gX-i,gY-distance+i)) {
+	        	if (isTargetReachable(gX-i,gY-distance+i, type)) {
 	        		return {found: true, tile:{x:gX-i, y:gY-distance+i}};
 	        	}
-	        	if (isTargetReachable(gX+i,gY-distance+i)) {
+	        	if (isTargetReachable(gX+i,gY-distance+i, type)) {
 	        		return {found: true, tile:{x:gX+i, y:gY-distance+i}};
 	        	}
         	}
             break;
         case DirectionEnum.EAST:
         	for (i=1; i<=distance; i++) {
-		    	if (isTargetReachable(gX+distance-i,gY-i)) {
+		    	if (isTargetReachable(gX+distance-i,gY-i, type)) {
 		    		return {found: true, tile:{x:gX+distance-i, y:gY-i}};
 		    	}
-		    	if (isTargetReachable(gX+distance-i,gY+i)) {
+		    	if (isTargetReachable(gX+distance-i,gY+i, type)) {
 		    		return {found: true, tile:{x:gX+distance-i, y:gY+i}};
 		    	}
-	        	if (isTargetReachable(gX-distance+i,gY-i)) {
+	        	if (isTargetReachable(gX-distance+i,gY-i, type)) {
 	        		return {found: true, tile:{x:gX-distance+i, y:gY-i}};
 	        	}
-	        	if (isTargetReachable(gX-distance+i,gY+i)) {
+	        	if (isTargetReachable(gX-distance+i,gY+i, type)) {
 	        		return {found: true, tile:{x:gX-distance+i, y:gY+i}};
 	        	}
         	}
             break;
         case DirectionEnum.SOUTH:
         	for (i=1; i<=distance; i++) {
-	        	if (isTargetReachable(gX-i,gY-distance+i)) {
+	        	if (isTargetReachable(gX-i,gY-distance+i, type)) {
 	        		return {found: true, tile:{x:gX-i, y:gY-distance+i}};
 	        	}
-	        	if (isTargetReachable(gX+i,gY-distance+i)) {
+	        	if (isTargetReachable(gX+i,gY-distance+i, type)) {
 	        		return {found: true, tile:{x:gX+i, y:gY-distance+i}};
 	        	}
-		    	if (isTargetReachable(gX-i,gY+distance-i)) {
+		    	if (isTargetReachable(gX-i,gY+distance-i, type)) {
 		    		return {found: true, tile:{x:gX-i, y:gY+distance-i}};
 		    	}
-		    	if (isTargetReachable(gX+i,gY+distance-i)) {
+		    	if (isTargetReachable(gX+i,gY+distance-i, type)) {
 		    		return {found: true, tile:{x:gX+i, y:gY+distance-i}};
 		    	}
         	}
             break;
         case DirectionEnum.WEST:
         	for (i=1; i<=distance; i++) {
-	        	if (isTargetReachable(gX-distance+i,gY-i)) {
+	        	if (isTargetReachable(gX-distance+i,gY-i, type)) {
 	        		return {found: true, tile:{x:gX-distance+i, y:gY-i}};
 	        	}
-	        	if (isTargetReachable(gX-distance+i,gY+i)) {
+	        	if (isTargetReachable(gX-distance+i,gY+i, type)) {
 	        		return {found: true, tile:{x:gX-distance+i, y:gY+i}};
 	        	}
-		    	if (isTargetReachable(gX+distance-i,gY-i)) {
+		    	if (isTargetReachable(gX+distance-i,gY-i, type)) {
 		    		return {found: true, tile:{x:gX+distance-i, y:gY-i}};
 		    	}
-		    	if (isTargetReachable(gX+distance-i,gY+i)) {
+		    	if (isTargetReachable(gX+distance-i,gY+i, type)) {
 		    		return {found: true, tile:{x:gX+distance-i, y:gY+i}};
 		    	}
         	}
@@ -529,7 +719,7 @@ var checkTargetAtDistance = function(distance) {
     return {found: false};
 };
 
-var isTargetReachable = function(x, y) {
+var isTargetReachable = function(x, y, type) {
 	if (x<0 || x>=gWidth) {
 		return false;
 	}
@@ -537,7 +727,7 @@ var isTargetReachable = function(x, y) {
 		return false;
 	}
 	tile = gMap[x][y];
-	return (tile.value === TileEnum.UNKNOWN)&&(tile.reachable === true);
+	return (tile.value === type)&&(tile.reachable === true);
 };
 
 var isTileReachable = function(x, y) {
@@ -551,50 +741,6 @@ var isTileReachable = function(x, y) {
 	return (tile.value === TileEnum.EMPTY)&&(tile.reachable === true);
 };
 
-var gCandidates;
-
-var getShortestPath = function(x, y) {
-	console.log("Computing Candidates: ");
-	gCandidates = computeCandidates(x, y);
-	console.log("Candidates: ");
-	for (var i = gCandidates.length - 1; i >= 0; i--) {
-		printTile(gCandidates[i]);
-	}
-	gSearchPath = {found: false, fuelUsed: 0, step: 0, steps: []};
-	initSearchMap();
-	searchMapForward(gX, gY, gDirection, 0, []);
-	searchMapLeft(gX,gY, gDirection, 0, []);
-	searchMapRight(gX,gY, gDirection, 0, []);
-	searchMapBackward(gX,gY, gDirection, 0, []);
-	return gSearchPath;
-};
-
-// TODO, can be optimized to place highest priority on certain tile depending on direction
-var computeCandidates = function(x, y) {
-	result = [];
-	var i=1;
-	while(isTileReachable(x+i,y)) {
-		result.push({x:x+i,y:y});
-		i++;
-	}
-	i=1;
-	while(isTileReachable(x-i,y)) {
-		result.push({x:x-i,y:y});
-		i++;
-	}
-	i=1;
-	while(isTileReachable(x,y+i)) {
-		result.push({x:x,y:y+i});
-		i++;
-	}
-	i=1;
-	while(isTileReachable(x,y-i)) {
-		result.push({x:x,y:y-i});
-		i++;
-	}
-	return result;
-};
-
 var isCandidate = function(x, y) {
 	for (var i=0; i<gCandidates.length; i++) {
 		if ((gCandidates[i].x === x) && (gCandidates[i].y === y)) {
@@ -604,7 +750,90 @@ var isCandidate = function(x, y) {
 	return false;
 };
 
-var initSearchMap = function() {
+var checkPresence = function(type) {
+	if (gMap[gX][gY+gLidar[DirectionEnum.NORTH]].value === type) {
+		return true;
+	}
+	if (gMap[gX][gY-gLidar[DirectionEnum.SOUTH]].value === type) {
+		return true;
+	}
+	if (gMap[gX+gLidar[DirectionEnum.EAST]][gY].value === type) {
+		return true;
+	}
+	if (gMap[gX-gLidar[DirectionEnum.WEST]][gY].value === type) {
+		return true;
+	}
+	return false;
+}
+
+//---------------------------------------------------------------------------
+// Search Path Algorithms
+//---------------------------------------------------------------------------
+
+var computeNextTile = function() {
+	var distance = 1;
+	var maxDistance = computeMaxDistance(gX,gY);
+	var result = {found: false};
+	while ((!result.found)&&(distance<=maxDistance)) {
+		result = checkTargetAtDistance(distance, TileEnum.UNKNOWN);
+		if (result.found) {
+			return result.tile;
+		}
+		distance++;
+	}
+	gLastState = gState;
+	gState = StateEnum.SEARCHING_TARGET;
+	// since we have a full map, we can transform the borders into WALL
+	wallMap();
+	return null;
+};
+
+var computeNextEnemy = function() {
+	var result = scanMap();
+	if (result.found) {
+		return result.tile;
+	}
+	return null;
+};
+
+var computeNextTarget = function() {
+	var distance = 1;
+	var maxDistance = computeMaxDistance(gX,gY);
+	var result = {found: false};
+	while ((!result.found)&&(distance<=maxDistance)) {
+		result = checkTargetAtDistance(distance, TileEnum.OBJECT);
+		if (result.found) {
+			return result.tile;
+		}
+		result = checkTargetAtDistance(distance, TileEnum.TARGET);
+		if (result.found) {
+			return result.tile;
+		}
+		distance++;
+	}
+	return null;
+};
+
+var computePositionTile = function() {
+	var tile = {x:gX, y:gY};
+	var maxScore = 0;
+    for(var i=0; i<gWidth; i++) {
+        for (j=0; j<gHeight; j++) {
+        	var score = computeScore(i, j);
+        	if (score > maxScore) {
+        		maxScore = score;
+        		tile = {x: i, y: j};
+        	}
+        }
+    }
+    return tile;
+};
+
+var computeScore = function(x, y) {
+	return 0;
+};
+
+var initSearch = function() {
     for(var i=0; i<gWidth; i++) {
         for (j=0; j<gHeight; j++) {
         	delete gMap[i][j].searched;
@@ -612,6 +841,48 @@ var initSearchMap = function() {
         	delete gMap[i][j].steps;
         }
     }
+	gPath = {found: false, fuelUsed: 0, step: 0, steps: []};
+	gCandidates = [];
+};
+
+var getPath = function(x, y, candidateFunction) {
+	initSearch();
+	candidateFunction(x, y);
+	if (isCandidate(gX, gY)) {
+		gPath = {isArrived: true, found: true, fuelUsed: 0, step: 0, steps: []};
+	}
+	searchMapForward(gX, gY, gDirection, 0, []);
+	searchMapLeft(gX,gY, gDirection, 0, []);
+	searchMapRight(gX,gY, gDirection, 0, []);
+	searchMapBackward(gX,gY, gDirection, 0, []);
+};
+
+var tileCandidates = function(x, y) {
+	gCandidates.push({x:x,y:y});
+};
+
+// TODO, can be optimized to place highest priority on certain tile depending on direction
+var viewCandidates = function(x, y) {
+	var i=1;
+	while(isTargetReachable(x+i,y, TileEnum.EMPTY)) {
+		gCandidates.push({x:x+i,y:y});
+		i++;
+	}
+	i=1;
+	while(isTargetReachable(x-i,y, TileEnum.EMPTY)) {
+		gCandidates.push({x:x-i,y:y});
+		i++;
+	}
+	i=1;
+	while(isTargetReachable(x,y+i, TileEnum.EMPTY)) {
+		gCandidates.push({x:x,y:y+i});
+		i++;
+	}
+	i=1;
+	while(isTargetReachable(x,y-i, TileEnum.EMPTY)) {
+		gCandidates.push({x:x,y:y-i});
+		i++;
+	}
 };
 
 // could be optimized will parallel computing... or taking into account search direction...
@@ -703,15 +974,15 @@ var searchMapMove = function(x, y, direction, fuel, path) {
 		gMap[x][y].fuelUsed = fuel;
 		gMap[x][y].steps = path.slice();
 		if (isCandidate(x, y)) {
-			if (gSearchPath.found) {
-				if (gSearchPath.fuelUsed > fuel) {
-					gSearchPath.fuelUsed = fuel;
-					gSearchPath.steps = path.slice();
+			if (gPath.found) {
+				if (gPath.fuelUsed > fuel) {
+					gPath.fuelUsed = fuel;
+					gPath.steps = path.slice();
 				}				
 			} else {
-				gSearchPath.found = true;
-				gSearchPath.fuelUsed = fuel;
-				gSearchPath.steps = path.slice();
+				gPath.found = true;
+				gPath.fuelUsed = fuel;
+				gPath.steps = path.slice();
 			}
 			return;
 		}
@@ -723,15 +994,15 @@ var searchMapMove = function(x, y, direction, fuel, path) {
 		gMap[x][y].fuelUsed = fuel;
 		gMap[x][y].steps = path.slice();
 		if (isCandidate(x, y)) {
-			if (gSearchPath.found) {
-				if (gSearchPath.fuelUsed > fuel) {
-					gSearchPath.fuelUsed = fuel;
-					gSearchPath.steps = path.slice();
+			if (gPath.found) {
+				if (gPath.fuelUsed > fuel) {
+					gPath.fuelUsed = fuel;
+					gPath.steps = path.slice();
 				}				
 			} else {
-				gSearchPath.found = true;
-				gSearchPath.fuelUsed = fuel;
-				gSearchPath.steps = path.slice();
+				gPath.found = true;
+				gPath.fuelUsed = fuel;
+				gPath.steps = path.slice();
 			}
 			return;
 		}
@@ -742,10 +1013,25 @@ var searchMapMove = function(x, y, direction, fuel, path) {
 	searchMapBackward(x, y, direction, fuel, path.slice());	
 };
 
-var performNextStep = function(path) {
-	var tile = path.steps[path.step];
-	if (performMoveTo(tile)) {
-		path.step++;	
+//---------------------------------------------------------------------------
+// Moving Functions
+//---------------------------------------------------------------------------
+
+var performNextStep = function() {
+	if (gPath.steps.length === 0) {
+		return;
+	}
+	var tile = gPath.steps[gPath.step];
+	try {
+		performMoveTo(tile)
+	} catch(e) {
+		if (e.moved) {
+			gPath.step++;
+			if (gPath.step === gPath.steps.length) {
+				gPath.isArrived = true;
+			}
+		}
+		throw e;
 	}
 };
 
@@ -761,7 +1047,7 @@ var performMoveTo = function(tile) {
 	} else if (tile.y > gY) {
 		goingTo = DirectionEnum.NORTH;
 	} else {
-		console.log("Impossible move...");
+		console.log("Problem in move...");
 	}
 
 	switch(gDirection) {
@@ -828,57 +1114,3 @@ var performMoveTo = function(tile) {
 	}
 };
 
-var lookForTarget = function() {
-
-};
-
-exports.update = function() {
-	gActionUsed = false;
-    if (gState === StateEnum.INIT) {
-    	console.log("Battle begin!");
-        initMap();
-    } else {
-    	console.log("======= Round: "+gRound+" =======");
-        updateMap();
-    }
-    if (identifyTarget()) {
-    	if (gTargetConfirmed) {
-        	fireCannon();
-    	}
-    } else {
-        switch(gDirection) {
-            case DirectionEnum.NORTH:
-                gMap[gX][gY+gLidar[gDirection]] = {reachable: false, value: TileEnum.WALL};
-                break;
-            case DirectionEnum.EAST:
-                gMap[gX+gLidar[gDirection]][gY] = {reachable: false, value: TileEnum.WALL};
-                break;
-            case DirectionEnum.SOUTH:
-                gMap[gX][gY-gLidar[gDirection]] = {reachable: false, value: TileEnum.WALL};
-                break;
-            case DirectionEnum.WEST:
-                gMap[gX-gLidar[gDirection]][gY] = {reachable: false, value: TileEnum.WALL};
-                break;
-        }
-    }
-    if (isEnemyInSight(x, y) || gAttacked) {
-        console.log("Seek and Destroy!");
-        seekAndDestroy();
-    }
-    if (gState === StateEnum.OPTIMIZING_POSITION) {
-        console.log("Optimizing Position");
-    	optimizePosition();
-    }
-    if (gState === StateEnum.TAKING_POSITION) {
-    	console.log("Taking Position");
-    	takePosition();
-    }
-    if (gState === StateEnum.SEARCHING_ENEMIES) {
-        console.log("Searching Enemies");
-    	lookForEnemies();
-    }
-    if (gState === StateEnum.SEARCHING_TARGET) {
-        console.log("Searching Target");
-    	lookForTarget();
-    }
-};
