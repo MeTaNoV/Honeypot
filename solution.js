@@ -461,18 +461,6 @@ var printPath = function(path) {
     }
 };
 
-// TODO: unused...
-var checkTile = function(x, y, type) {
-    if (x<0 || x>=gWidth) {
-        return false;
-    }
-    if (y<0 || y>=gHeight) {
-        return false;
-    }
-    tile = gMap[x][y];
-    return (tile.value & type);
-};
-
 var setEmptyTile = function(x, y) {
     switch (gMap[x][y].value) {
         case TileEnum.UNKNOWN:
@@ -481,7 +469,7 @@ var setEmptyTile = function(x, y) {
             break;
         case TileEnum.OBJECT:
         case TileEnum.ENEMY:
-            if (!isTileInView(x, y) || gTargetConfirmed) {
+            if (!isTileInView(x, y) || !gTargetConfirmed) {
                 console.log("periodicEnemy spotted at: "+x+","+y);
                 gMap[x][y].periodicEnemy = true;
             }
@@ -566,7 +554,7 @@ var isTilePossibleCandidate = function(x, y) {
         return false;
     }
     tile = gMap[x][y];
-    return ((tile.value&TileEnum.EMPTY) === TileEnum.EMPTY) && (!tile.vChecked || !tile.hChecked);
+    return (tile.value === TileEnum.EMPTY) && (!tile.vChecked || !tile.hChecked);
 };
 
 var isTileCandidate = function(x, y) {
@@ -578,50 +566,6 @@ var isTileCandidate = function(x, y) {
     return false;
 };
 
-var checkPresence = function(type) {
-    if (type !== TileEnum.ENEMY) {
-        if ((gMap[gX][gY+gLidar[DirectionEnum.NORTH]].value & type) &&
-            gY+gLidar[DirectionEnum.NORTH] !== gHeight-1) {
-            console.log("Checked NORTH: "+type);
-            return true;
-        }
-        if ((gMap[gX][gY-gLidar[DirectionEnum.SOUTH]].value & type) &&
-            gY-gLidar[DirectionEnum.SOUTH] !== 0) {
-            console.log("Checked SOUTH: "+type);
-            return true;
-        }
-        if ((gMap[gX+gLidar[DirectionEnum.EAST]][gY].value & type) &&
-            gX+gLidar[DirectionEnum.EAST] !== gWidth-1) {
-            console.log("Checked EAST: "+type);
-            return true;
-        }
-        if ((gMap[gX-gLidar[DirectionEnum.WEST]][gY].value & type) &&
-            gX-gLidar[DirectionEnum.WEST] !== 0) {
-            console.log("Checked WEST: "+type);
-            return true;
-        }
-        return false;
-    } else {
-        if (gMap[gX][gY+gLidar[DirectionEnum.NORTH]].value & type) {
-            console.log("Enemy NORTH: "+type);
-            return true;
-        }
-        if (gMap[gX][gY-gLidar[DirectionEnum.SOUTH]].value & type) {
-            console.log("Enemy SOUTH: "+type);
-            return true;
-        }
-        if (gMap[gX+gLidar[DirectionEnum.EAST]][gY].value & type) {
-            console.log("Enemy EAST: "+type);
-            return true;
-        }
-        if (gMap[gX-gLidar[DirectionEnum.WEST]][gY].value & type) {
-            console.log("Enemy WEST: "+type);
-            return true;
-        }
-        return false;       
-    }
-};
-
 //---------------------------------------------------------------------------
 // Main algorithmic functions
 //---------------------------------------------------------------------------
@@ -631,9 +575,28 @@ var discoverPosition = function() {
         gPath = null;
         gState = StateEnum.TAKING_POSITION;
     } else {
-        lookForEnemy();
+        exploreMap();
     }
 };
+
+var exploreMap = function() {
+    if (gPath) {
+        if (gPath.isArrived) {
+            console.log("Arrived...");
+            gPath = null;
+        } else {
+            performNextStep();
+        }
+    } else {
+        getPath(gX, gY, exploreCandidates);
+        console.log("Next exploration path:");
+        printPath(gPath);
+        if (!gPath) {
+            gState = StateEnum.SEARCHING_TARGET;
+            gAvoidTarget = false;
+        }
+    }
+}
 
 var takePosition = function() {
     if (gPath) {
@@ -699,47 +662,45 @@ var lookForTarget = function() {
 };
 
 var seekAndDestroy = function(type) {
-    if (checkPresence(type)) {
-        switch(gDirection) {
-            case DirectionEnum.NORTH:
-                console.log("seekAndDestroy NORTH");
-                if ((gMap[gX+gLidar[DirectionEnum.EAST]][gY].value & type) &&
-                    gX+gLidar[DirectionEnum.EAST] !== gWidth-1) {
-                    turnRight();
-                } else {
-                    turnLeft();
-                }
-                break;
-            case DirectionEnum.EAST:
-                console.log("seekAndDestroy EAST");
-                if ((gMap[gX][gY-gLidar[DirectionEnum.SOUTH]].value & type) &&
-                    gY-gLidar[DirectionEnum.SOUTH] !== 0) {
-                    turnRight();
-                } else {
-                    turnLeft();
-                }
-                break;
-            case DirectionEnum.SOUTH:
-                console.log("seekAndDestroy SOUTH");
-                if ((gMap[gX-gLidar[DirectionEnum.WEST]][gY].value & type) &&
-                    gX-gLidar[DirectionEnum.WEST] !== 0) {
-                    turnRight();
-                } else {
-                    turnLeft();
-                }
-                break;
-            case DirectionEnum.WEST:
-                console.log("seekAndDestroy WEST");
-                if ((gMap[gX][gY+gLidar[DirectionEnum.NORTH]].value & type) &&
-                    gY+gLidar[DirectionEnum.NORTH] !== gHeight-1) {
-                    turnRight();
-                } else {
-                    turnLeft();
-                }
-                break;
-            default:
-                console.log("seekAndDestroy Unknown direction: "+gDirection);
-        }       
+    var result = {found:false};
+    var distance = Math.max(gWidth, gHeight);
+
+    // NORTH
+    if (gMap[gX][gY+gLidar[DirectionEnum.NORTH]].value === type) {
+        result = {found: true, direction: DirectionEnum.NORTH};
+        distance = gLidar[DirectionEnum.NORTH];
+    }
+    // EAST
+    if (gMap[gX+gLidar[DirectionEnum.EAST]][gY].value === type) {
+        if ((gLidar[DirectionEnum.EAST] < distance) ||
+            ((gLidar[DirectionEnum.EAST] === distance && DirectionEnum.EAST === gDirection))) {
+            result = {found: true, direction: DirectionEnum.EAST};
+            distance = gLidar[DirectionEnum.EAST];
+        }
+    }
+    // SOUTH
+    if (gMap[gX][gY-gLidar[DirectionEnum.SOUTH]].value === type) {
+        if ((gLidar[DirectionEnum.SOUTH] < distance) ||
+            ((gLidar[DirectionEnum.SOUTH] === distance && DirectionEnum.SOUTH === gDirection))) {
+            result = {found: true, direction: DirectionEnum.SOUTH};
+            distance = gLidar[DirectionEnum.SOUTH];
+        }
+    }
+    // WEST
+    if (gMap[gX-gLidar[DirectionEnum.WEST]][gY].value === type) {
+        if ((gLidar[DirectionEnum.WEST] < distance) ||
+            ((gLidar[DirectionEnum.WEST] === distance && DirectionEnum.WEST === gDirection))) {
+            result = {found: true, direction: DirectionEnum.WEST};
+            distance = gLidar[DirectionEnum.WEST];
+        }
+    }
+    
+    if (result.found) {
+        console.log("Type: "+type+" spotted in direction: "+result.direction+" at distance: "+distance);
+        // TODO: some special case might be added here...
+        if (distance < Math.abs(gDirection-result.direction)+2) {
+            performOrientation(result.direction);
+        }
     }
 };
 
