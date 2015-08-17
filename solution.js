@@ -36,8 +36,8 @@ var StateEnum = {
     SEARCHING_TARGET: 4
 };
 
-var MAX_DISCOVERY_ROUNDS = 7;
-var MAX_HOLDING_POSITION = MAX_DISCOVERY_ROUNDS+16;
+var MAX_DISCOVERY_ROUNDS = 10;
+var MAX_HOLDING_POSITION = MAX_DISCOVERY_ROUNDS+15;
 var MAX_HOLDING_INCREASE = 2;
 
 var FUEL_IDLE = 1;
@@ -61,7 +61,7 @@ var gRound = 1;
 var gPath = null;
 var gCandidates = [];
 
-var gAvoidTarget = true;
+var gTargetConfirmed = false;
 var gAttacked = false;
 var gHoldLonger = 0;
 
@@ -83,25 +83,13 @@ exports.update = function() {
             console.log("======= Round: "+gRound+" =======");
             updateMap();
         }
+        computeTargetTile();
         if (identifyTarget()) {
             if (gTargetConfirmed) {
                 fireCannon();               
             }
         } else {
-            switch(gDirection) {
-                case DirectionEnum.NORTH:
-                    setTile(gX,gY+gLidar[gDirection],TileEnum.WALL);
-                    break;
-                case DirectionEnum.EAST:
-                    setTile(gX+gLidar[gDirection],gY,TileEnum.WALL);
-                    break;
-                case DirectionEnum.SOUTH:
-                    setTile(gX,gY-gLidar[gDirection],TileEnum.WALL);
-                    break;
-                case DirectionEnum.WEST:
-                    setTile(gX-gLidar[gDirection],gY,TileEnum.WALL);
-                    break;
-            }
+            gTargetTile.value = TileEnum.WALL;
         }
         if (gState === StateEnum.SEARCHING_POSITION) {
             while (gState === StateEnum.SEARCHING_POSITION) {
@@ -123,16 +111,18 @@ exports.update = function() {
         }
         if (gState === StateEnum.SEARCHING_ENEMY) {
             while (gState === StateEnum.SEARCHING_ENEMY) {
-                console.log("Seek and Destroy Enemy and Object!!!");
-                seekAndDestroy(TileEnum.ENEMY|TileEnum.OBJECT);
+                console.log("Seek and Destroy Enemy!!!");
+                seekAndDestroy(TileEnum.ENEMY);
+                console.log("Seek and Destroy Target!!!");
+                seekAndDestroy(TileEnum.TARGET);
                 console.log("Searching Enemy");
                 lookForEnemy();
             }
         }
         if (gState === StateEnum.SEARCHING_TARGET) {
             while (gState === StateEnum.SEARCHING_TARGET) {
-                console.log("Seek and Destroy Enemy and Target!!!");
-                seekAndDestroy(TileEnum.ENEMY|TileEnum.TARGET);
+                console.log("Seek and Destroy Target!!!");
+                seekAndDestroy(TileEnum.TARGET);
                 console.log("Searching Target");
                 lookForTarget();
             }
@@ -163,54 +153,36 @@ var getLidar = function() {
 var identifyTarget = function() {
     // we confirmed a target if the enemy is on the next tile (both type 1&2)
     // and if we check a progressing enemy (type 2)
+    gTargetConfirmed = false;
     if (api.identifyTarget()) {
-        var x = 0;
-        var y = 0;
-        switch(gDirection) {
-            case DirectionEnum.NORTH:
-                x = gX;
-                y = gY+gLidar[gDirection];
-                break;
-            case DirectionEnum.EAST:
-                x = gX+gLidar[gDirection];
-                y = gY;
-                break;
-            case DirectionEnum.SOUTH:
-                x = gX;
-                y = gY-gLidar[gDirection];
-                break;
-            case DirectionEnum.WEST:
-                x = gX-gLidar[gDirection];
-                y = gY;
-                break;
-        }
-        var value = gMap[x][y].value;
-
-        if ((value&TileEnum.ENEMY) === TileEnum.ENEMY) {
-            gTargetConfirmed = true;
-        } else {
-            if (gLidar[gDirection] === 1) {
-                gTargetConfirmed = true;
-            } else {
-                if (gAvoidTarget) {
-                    switch(gDirection) {
-                        case DirectionEnum.NORTH:
-                            gTargetConfirmed =  (y !== gHeight-1);
-                            break;
-                        case DirectionEnum.EAST:
-                            gTargetConfirmed =  (x !== gWidth-1);
-                            break;
-                        case DirectionEnum.SOUTH:
-                            gTargetConfirmed =  (y !== 0);
-                            break;
-                        case DirectionEnum.WEST:
-                            gTargetConfirmed =  (x !== 0);
-                            break;
-                    }                   
-                } else {
+        switch(gTargetTile.value) {
+            case TileEnum.ENEMY:
+                if (gState !== StateEnum.SEARCHING_POSITION) {
                     gTargetConfirmed = true;
                 }
-            }
+                if (gLidar[gDirection] === 1) {
+                    gTargetConfirmed = true;
+                }
+                if (gTargetTile.periodicEnemy) {
+                    gTargetConfirmed = false;
+                }
+                break;
+            case TileEnum.OBJECT:
+                if (gLidar[gDirection] === 1) {
+                    gTargetConfirmed = true;
+                }
+                break;
+            case TileEnum.WALL|TileEnum.TARGET:
+                gTargetTile.value = TileEnum.TARGET;
+                // we don't break since we want to check the following case after update
+            case TileEnum.TARGET:
+                if (gState === StateEnum.SEARCHING_ENEMY ||
+                    gState === StateEnum.SEARCHING_TARGET) {
+                    gTargetConfirmed = true;
+                }
+                break;
+            default:
+                throw "Error in identifyTarget: "+gTargetTile.value;
         }
         return true;
     } else {
@@ -302,18 +274,19 @@ var initMap = function() {
     gY = gLidar[DirectionEnum.SOUTH];
 
     // init the first visible tiles on map
-    setTile(gX,0,TileEnum.OBJECT);
+    gMap[gX][0].value = TileEnum.OBJECT;
     for (var i=1; i<gLidar[DirectionEnum.NORTH]+gLidar[DirectionEnum.SOUTH]; i++) {
-        setTile(gX,i,TileEnum.EMPTY);
+        setEmptyTile(gX,i);
         gMap[gX][i].vChecked = true;
     }
-    setTile(gX,gLidar[DirectionEnum.NORTH]+gLidar[DirectionEnum.SOUTH],TileEnum.OBJECT);
-    setTile(0,gY,TileEnum.OBJECT);
+    gMap[gX][gLidar[DirectionEnum.NORTH]+gLidar[DirectionEnum.SOUTH]].value = TileEnum.OBJECT;
+
+    gMap[0][gY].value = TileEnum.OBJECT;
     for (var j=1; j<gLidar[DirectionEnum.EAST]+gLidar[DirectionEnum.WEST]; j++) {
-        setTile(j,gY,TileEnum.EMPTY);
+        setEmptyTile(j,gY);
         gMap[j][gY].hChecked = true;
     }
-    setTile(gLidar[DirectionEnum.EAST]+gLidar[DirectionEnum.WEST],gY,TileEnum.OBJECT);
+    gMap[gLidar[DirectionEnum.EAST]+gLidar[DirectionEnum.WEST]][gY].value = TileEnum.OBJECT;
     
     // switching to next state
     gState = StateEnum.SEARCHING_POSITION;
@@ -364,23 +337,23 @@ var updateMap = function() {
     var yMin = gY-gLidar[DirectionEnum.SOUTH];
     var yMax = gY+gLidar[DirectionEnum.NORTH];
 
-    updateLidarTile(gX, yMin);
+    setLidarTile(gX, yMin);
     for (var i=yMin+1; i<yMax; i++) {
-        setTile(gX, i, TileEnum.EMPTY);
+        setEmptyTile(gX, i);
         gMap[gX][i].vChecked = true;
     }
-    updateLidarTile(gX, yMax);
+    setLidarTile(gX, yMax);
 
     // updating line taking into account previous state
     var xMin = gX-gLidar[DirectionEnum.WEST];
     var xMax = gX+gLidar[DirectionEnum.EAST];
 
-    updateLidarTile(xMin, gY);
+    setLidarTile(xMin, gY);
     for (var j=xMin+1; j<xMax; j++) {
-        setTile(j,gY,TileEnum.EMPTY);
+        setEmptyTile(j,gY);
         gMap[j][gY].hChecked = true;
     }
-    updateLidarTile(xMax, gY);
+    setLidarTile(xMax, gY);
 
     if (api.currentFuel() < (gFuel - FUEL_ATTACKED)) {
         gAttacked = true;
@@ -470,6 +443,182 @@ var printMap = function() {
             }
         }
         console.log(s);
+    }
+};
+
+//---------------------------------------------------------------------------
+// Misc Utility Functions
+//---------------------------------------------------------------------------
+
+var printTile = function(tile) {
+    console.log(tile.x+","+tile.y);
+};
+
+var printPath = function(path) {
+    for(var i=0; i<path.steps.length; i++) {
+        console.log("Step "+i);
+        printTile(path.steps[i]);        
+    }
+};
+
+// TODO: unused...
+var checkTile = function(x, y, type) {
+    if (x<0 || x>=gWidth) {
+        return false;
+    }
+    if (y<0 || y>=gHeight) {
+        return false;
+    }
+    tile = gMap[x][y];
+    return (tile.value & type);
+};
+
+var setEmptyTile = function(x, y) {
+    switch (gMap[x][y].value) {
+        case TileEnum.UNKNOWN:
+            break;
+        case TileEnum.EMPTY:
+            break;
+        case TileEnum.OBJECT:
+        case TileEnum.ENEMY:
+            if (!isTileInView(x, y) || gTargetConfirmed) {
+                console.log("periodicEnemy spotted at: "+x+","+y);
+                gMap[x][y].periodicEnemy = true;
+            }
+            break;
+        case TileEnum.TARGET:
+            break;
+        default:
+            throw "=================== Problem setting empty tile: "+gMap[x][y].value+" ===================";
+    }
+    gMap[x][y].value = TileEnum.EMPTY;
+    gMap[x-1][y].reachable = true;
+    gMap[x+1][y].reachable = true;
+    gMap[x][y-1].reachable = true;
+    gMap[x][y+1].reachable = true;
+};
+
+var isTileInView = function(x, y) {
+    var result = false;
+    switch(gDirection) {
+        case DirectionEnum.NORTH:
+            result = (gX === x) && (gY < y);
+            break;
+        case DirectionEnum.EAST:
+            result = (gX < x) && (gY === y);
+            break;
+        case DirectionEnum.SOUTH:
+            result = (gX === x) && (gY > y);
+            break;
+        case DirectionEnum.WEST:
+            result = (gX > x) && (gY === y);
+            break;
+    }
+    return result;
+};
+
+var setLidarTile = function(x, y) {
+    switch (gMap[x][y].value) {
+        case TileEnum.UNKNOWN:
+            gMap[x][y].value = TileEnum.OBJECT;
+            break;
+        case TileEnum.EMPTY:
+            gMap[x][y].value = TileEnum.ENEMY;
+            break;
+        case TileEnum.OBJECT:
+            gMap[x][y].value = TileEnum.WALL|TileEnum.TARGET;
+            break;
+        case TileEnum.WALL:
+            break;
+        case TileEnum.TARGET:
+            break;
+        case TileEnum.WALL|TileEnum.TARGET:
+            break;
+        case TileEnum.ENEMY:
+            break;
+        default:
+            throw "=================== Problem updating lidar tile: "+gMap[x][y].value+" ===================";
+    }
+};
+
+var computeTargetTile = function() {
+    switch(gDirection) {
+        case DirectionEnum.NORTH:
+            gTargetTile = gMap[gX][gY+gLidar[gDirection]];
+            break;
+        case DirectionEnum.EAST:
+            gTargetTile = gMap[gX+gLidar[gDirection]][gY];
+            break;
+        case DirectionEnum.SOUTH:
+            gTargetTile = gMap[gX][gY-gLidar[gDirection]];
+            break;
+        case DirectionEnum.WEST:
+            gTargetTile = gMap[gX-gLidar[gDirection]][gY];
+            break;
+    }
+};
+
+var isTilePossibleCandidate = function(x, y) {
+    if (x<0 || x>=gWidth) {
+        return false;
+    }
+    if (y<0 || y>=gHeight) {
+        return false;
+    }
+    tile = gMap[x][y];
+    return ((tile.value&TileEnum.EMPTY) === TileEnum.EMPTY) && (!tile.vChecked || !tile.hChecked);
+};
+
+var isTileCandidate = function(x, y) {
+    for (var i=0; i<gCandidates.length; i++) {
+        if ((gCandidates[i].x === x) && (gCandidates[i].y === y)) {
+            return true;
+        }
+    }
+    return false;
+};
+
+var checkPresence = function(type) {
+    if (type !== TileEnum.ENEMY) {
+        if ((gMap[gX][gY+gLidar[DirectionEnum.NORTH]].value & type) &&
+            gY+gLidar[DirectionEnum.NORTH] !== gHeight-1) {
+            console.log("Checked NORTH: "+type);
+            return true;
+        }
+        if ((gMap[gX][gY-gLidar[DirectionEnum.SOUTH]].value & type) &&
+            gY-gLidar[DirectionEnum.SOUTH] !== 0) {
+            console.log("Checked SOUTH: "+type);
+            return true;
+        }
+        if ((gMap[gX+gLidar[DirectionEnum.EAST]][gY].value & type) &&
+            gX+gLidar[DirectionEnum.EAST] !== gWidth-1) {
+            console.log("Checked EAST: "+type);
+            return true;
+        }
+        if ((gMap[gX-gLidar[DirectionEnum.WEST]][gY].value & type) &&
+            gX-gLidar[DirectionEnum.WEST] !== 0) {
+            console.log("Checked WEST: "+type);
+            return true;
+        }
+        return false;
+    } else {
+        if (gMap[gX][gY+gLidar[DirectionEnum.NORTH]].value & type) {
+            console.log("Enemy NORTH: "+type);
+            return true;
+        }
+        if (gMap[gX][gY-gLidar[DirectionEnum.SOUTH]].value & type) {
+            console.log("Enemy SOUTH: "+type);
+            return true;
+        }
+        if (gMap[gX+gLidar[DirectionEnum.EAST]][gY].value & type) {
+            console.log("Enemy EAST: "+type);
+            return true;
+        }
+        if (gMap[gX-gLidar[DirectionEnum.WEST]][gY].value & type) {
+            console.log("Enemy WEST: "+type);
+            return true;
+        }
+        return false;       
     }
 };
 
@@ -591,131 +740,6 @@ var seekAndDestroy = function(type) {
             default:
                 console.log("seekAndDestroy Unknown direction: "+gDirection);
         }       
-    }
-};
-
-//---------------------------------------------------------------------------
-// Misc Utility Functions
-//---------------------------------------------------------------------------
-
-var printTile = function(tile) {
-    console.log(tile.x+","+tile.y);
-};
-
-var printPath = function(path) {
-    for(var i=0; i<path.steps.length; i++) {
-        console.log("Step "+i);
-        printTile(path.steps[i]);        
-    }
-};
-
-// TODO: unused...
-var checkTile = function(x, y, type) {
-    if (x<0 || x>=gWidth) {
-        return false;
-    }
-    if (y<0 || y>=gHeight) {
-        return false;
-    }
-    tile = gMap[x][y];
-    return (tile.value & type);
-};
-
-var setTile = function(x, y, val) {
-    gMap[x][y].value = val;
-    if ((val&TileEnum.EMPTY) === TileEnum.EMPTY) {
-        gMap[x-1][y].reachable = true;
-        gMap[x+1][y].reachable = true;
-        gMap[x][y-1].reachable = true;
-        gMap[x][y+1].reachable = true;
-    }
-};
-
-var updateLidarTile = function(x, y) {
-    switch(gMap[x][y].value) {
-        case TileEnum.UNKNOWN:
-            setTile(x, y, TileEnum.OBJECT);
-            break;
-        case TileEnum.EMPTY:
-            setTile(x, y, TileEnum.ENEMY);
-            break;
-        case TileEnum.OBJECT:
-            setTile(x, y, TileEnum.WALL|TileEnum.TARGET);
-            break;
-        case TileEnum.WALL:
-            break;
-        case TileEnum.TARGET:
-            break;
-        case TileEnum.WALL|TileEnum.TARGET:
-            break;
-        case TileEnum.ENEMY:
-            break;
-        default:
-            throw "=================== Problem updating lidar tile: "+gMap[x][y].value+" ===================";
-    }
-};
-
-var isTilePossibleCandidate = function(x, y) {
-    if (x<0 || x>=gWidth) {
-        return false;
-    }
-    if (y<0 || y>=gHeight) {
-        return false;
-    }
-    tile = gMap[x][y];
-    return ((tile.value&TileEnum.EMPTY) === TileEnum.EMPTY) && (!tile.vChecked || !tile.hChecked);
-};
-
-var isTileCandidate = function(x, y) {
-    for (var i=0; i<gCandidates.length; i++) {
-        if ((gCandidates[i].x === x) && (gCandidates[i].y === y)) {
-            return true;
-        }
-    }
-    return false;
-};
-
-var checkPresence = function(type) {
-    if (!(type & TileEnum.ENEMY)) {
-        if ((gMap[gX][gY+gLidar[DirectionEnum.NORTH]].value & type) &&
-            gY+gLidar[DirectionEnum.NORTH] !== gHeight-1) {
-            console.log("1");
-            return true;
-        }
-        if ((gMap[gX][gY-gLidar[DirectionEnum.SOUTH]].value & type) &&
-            gY-gLidar[DirectionEnum.SOUTH] !== 0) {
-            console.log("2");
-            return true;
-        }
-        if ((gMap[gX+gLidar[DirectionEnum.EAST]][gY].value & type) &&
-            gX+gLidar[DirectionEnum.EAST] !== gWidth-1) {
-            console.log("3");
-            return true;
-        }
-        if ((gMap[gX-gLidar[DirectionEnum.WEST]][gY].value & type) &&
-            gX-gLidar[DirectionEnum.WEST] !== 0) {
-            console.log("4");
-            return true;
-        }
-        return false;
-    } else {
-        if (gMap[gX][gY+gLidar[DirectionEnum.NORTH]].value & type) {
-            console.log("5");
-            return true;
-        }
-        if (gMap[gX][gY-gLidar[DirectionEnum.SOUTH]].value & type) {
-            console.log("6");
-            return true;
-        }
-        if (gMap[gX+gLidar[DirectionEnum.EAST]][gY].value & type) {
-            console.log("7");
-            return true;
-        }
-        if (gMap[gX-gLidar[DirectionEnum.WEST]][gY].value & type) {
-            console.log("8");
-            return true;
-        }
-        return false;       
     }
 };
 
