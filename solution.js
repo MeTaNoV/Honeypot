@@ -546,17 +546,6 @@ var computeTargetTile = function() {
     }
 };
 
-var isTilePossibleCandidate = function(x, y) {
-    if (x<0 || x>=gWidth) {
-        return false;
-    }
-    if (y<0 || y>=gHeight) {
-        return false;
-    }
-    tile = gMap[x][y];
-    return (tile.value === TileEnum.EMPTY) && (!tile.vChecked || !tile.hChecked);
-};
-
 var isTileCandidate = function(x, y) {
     for (var i=0; i<gCandidates.length; i++) {
         if ((gCandidates[i].x === x) && (gCandidates[i].y === y)) {
@@ -593,10 +582,9 @@ var exploreMap = function() {
         printPath(gPath);
         if (!gPath) {
             gState = StateEnum.SEARCHING_TARGET;
-            gAvoidTarget = false;
         }
     }
-}
+};
 
 var takePosition = function() {
     if (gPath) {
@@ -631,12 +619,11 @@ var lookForEnemy = function() {
             performNextStep();
         }
     } else {
-        getPath(gX, gY, exploreCandidates);
+        getPath(gX, gY, enemyCandidates);
         console.log("Next exploration path:");
         printPath(gPath);
         if (!gPath) {
-            gState = StateEnum.SEARCHING_TARGET;
-            gAvoidTarget = false;
+            exploreMap();
         }
     }
 };
@@ -657,7 +644,6 @@ var lookForTarget = function() {
             throw "We missed something...";
         }
         gState = StateEnum.SEARCHING_ENEMY;
-        gAvoidTarget = true;
     }
 };
 
@@ -738,7 +724,7 @@ var computeScore = function(x, y) {
     var result = 0;
     var hasWall = false;
     var i=1;
-    while((gMap[x+i][y].value&TileEnum.EMPTY) === TileEnum.EMPTY) {
+    while(gMap[x+i][y].value === TileEnum.EMPTY) {
         i++;
     }
     result += i*i;
@@ -746,7 +732,7 @@ var computeScore = function(x, y) {
         hasWall = true;
     }
     i=1;
-    while((gMap[x-i][y].value&TileEnum.EMPTY) === TileEnum.EMPTY) {
+    while(gMap[x-i][y].value === TileEnum.EMPTY) {
         i++;
     }
     result += i*i;
@@ -754,7 +740,7 @@ var computeScore = function(x, y) {
         hasWall = true;
     }
     i=1;
-    while((gMap[x][y+i].value&TileEnum.EMPTY) === TileEnum.EMPTY) {
+    while(gMap[x][y+i].value === TileEnum.EMPTY) {
         i++;
     }
     result += i*i;
@@ -762,7 +748,7 @@ var computeScore = function(x, y) {
         hasWall = true;
     }
     i=1;
-    while((gMap[x][y-i].value&TileEnum.EMPTY) === TileEnum.EMPTY) {
+    while(gMap[x][y-i].value === TileEnum.EMPTY) {
         i++;
     }
     result += i*i;
@@ -840,28 +826,25 @@ var initSearch = function() {
     for(var i=0; i<gWidth; i++) {
         for (j=0; j<gHeight; j++) {
             delete gMap[i][j].searched;
-            delete gMap[i][j].fuelUsed;
+            delete gMap[i][j].fuel;
+            delete gMap[i][j].discovery;
             delete gMap[i][j].steps;
         }
     }
-    gPath = {found: false, fuelUsed: 0, step: 0, steps: []};
+    gPath = {found: false, fuel: 0, discovery: 0, step: 0, steps: []};
     gCandidates = [];
 };
 
 var getPath = function(x, y, candidateFunction) {
     initSearch();
     candidateFunction(x, y);
-    if (isTileCandidate(gX, gY)) {
-        gPath = {isArrived: true, found: true, fuelUsed: 0, step: 0, steps: []};
-    }
-    searchMapForward(gX, gY, gDirection, 0, []);
-    searchMapLeft(gX,gY, gDirection, 0, []);
-    searchMapRight(gX,gY, gDirection, 0, []);
-    searchMapBackward(gX,gY, gDirection, 0, []);
-};
-
-var tileCandidates = function(x, y) {
-    gCandidates.push({x:x,y:y});
+    //if (isTileCandidate(gX, gY)) {
+    //    gPath = {isArrived: true, found: true, fuelUsed: 0, step: 0, steps: []};
+    //}
+    searchMapForward(gX, gY, gDirection, 0, 0, []);
+    searchMapLeft(gX,gY, gDirection, 0, 0, []);
+    searchMapRight(gX,gY, gDirection, 0, 0, []);
+    searchMapBackward(gX,gY, gDirection, 0, 0, []);
 };
 
 var exploreCandidates = function(x, y) {
@@ -899,12 +882,31 @@ var checkTilesAtDistance = function(distance) {
     }
 };
 
+var isTilePossibleCandidate = function(x, y) {
+    if (x<0 || x>=gWidth) {
+        return false;
+    }
+    if (y<0 || y>=gHeight) {
+        return false;
+    }
+    tile = gMap[x][y];
+    return (tile.value === TileEnum.EMPTY) && (!tile.periodicEnemy) && (!tile.vChecked || !tile.hChecked);
+};
+
+var tileCandidates = function(x, y) {
+    gCandidates.push({x:x,y:y});
+};
+
+var enemyCandidates = function(x,y) {
+    throw "enemyCandidates missing...";
+};
+
 var targetCandidates = function(x,y) {
     throw "targetCandidates missing...";
 };
 
 // could be optimized will parallel computing... or taking into account search direction...
-var searchMapForward = function(x, y, direction, fuel, path) {
+var searchMapForward = function(x, y, direction, fuel, discovery, path) {
     switch(direction) {
         case DirectionEnum.NORTH:
             y++;
@@ -920,10 +922,10 @@ var searchMapForward = function(x, y, direction, fuel, path) {
             break;
     }
     fuel += FUEL_MOVE;
-    searchMapMove(x, y, direction, fuel, path);
+    searchMapMove(x, y, direction, fuel, discovery, path);
 };
 
-var searchMapLeft = function(x, y, direction, fuel, path) {
+var searchMapLeft = function(x, y, direction, fuel, discovery, path) {
     switch(direction) {
         case DirectionEnum.NORTH:
             x--;
@@ -940,10 +942,10 @@ var searchMapLeft = function(x, y, direction, fuel, path) {
     }
     direction = (direction+3)%4;
     fuel += FUEL_TURN+FUEL_MOVE;
-    searchMapMove(x, y, direction, fuel, path);
+    searchMapMove(x, y, direction, fuel, discovery, path);
 };
 
-var searchMapBackward = function(x, y, direction, fuel, path) {
+var searchMapBackward = function(x, y, direction, fuel, discovery, path) {
     switch(direction) {
         case DirectionEnum.NORTH:
             y--;
@@ -959,10 +961,10 @@ var searchMapBackward = function(x, y, direction, fuel, path) {
             break;
     }
     fuel += FUEL_MOVE;
-    searchMapMove(x, y, direction, fuel, path);
+    searchMapMove(x, y, direction, fuel, discovery, path);
 };
 
-var searchMapRight = function(x, y, direction, fuel, path) {
+var searchMapRight = function(x, y, direction, fuel, discovery, path) {
     switch(direction) {
         case DirectionEnum.NORTH:
             x++;
@@ -979,56 +981,85 @@ var searchMapRight = function(x, y, direction, fuel, path) {
     }
     direction = (direction+1)%4;
     fuel += FUEL_TURN+FUEL_MOVE;
-    searchMapMove(x, y, direction, fuel, path);
+    searchMapMove(x, y, direction, fuel, discovery, path);
 };
 
-var searchMapMove = function(x, y, direction, fuel, path) {
-    if ((gMap[x][y].value&TileEnum.EMPTY) !== TileEnum.EMPTY) {
+var searchMapMove = function(x, y, direction, fuel, discovery, path) {
+    if (gMap[x][y].value !== TileEnum.EMPTY) {
         return;
     }
+
+    discovery += computeDiscovery(x, y);
+
     if (!gMap[x][y].searched) {
-        path.push({x:x, y:y});
         gMap[x][y].searched = true;
-        gMap[x][y].fuelUsed = fuel;
-        gMap[x][y].steps = path.slice();
-        if (isTileCandidate(x, y)) {
-            if (gPath.found) {
-                if (gPath.fuelUsed > fuel) {
-                    gPath.fuelUsed = fuel;
-                    gPath.steps = path.slice();
-                }               
-            } else {
-                gPath.found = true;
-                gPath.fuelUsed = fuel;
-                gPath.steps = path.slice();
-            }
-            return;
-        }
     } else {
-        if (gMap[x][y].fuelUsed <= fuel) {
+        if (gMap[x][y].discovery > discovery) {
             return;
         }
-        path.push({x:x, y:y});
-        gMap[x][y].fuelUsed = fuel;
-        gMap[x][y].steps = path.slice();
-        if (isTileCandidate(x, y)) {
-            if (gPath.found) {
-                if (gPath.fuelUsed > fuel) {
-                    gPath.fuelUsed = fuel;
-                    gPath.steps = path.slice();
-                }               
-            } else {
-                gPath.found = true;
-                gPath.fuelUsed = fuel;
-                gPath.steps = path.slice();
-            }
+        if (gMap[x][y].fuel <= fuel) {
             return;
         }
     }
-    searchMapForward(x, y, direction, fuel, path.slice());
-    searchMapLeft(x, y, direction, fuel, path.slice());
-    searchMapRight(x, y, direction, fuel, path.slice());
-    searchMapBackward(x, y, direction, fuel, path.slice()); 
+
+    path.push({x:x, y:y});
+    gMap[x][y].discovery = discovery;
+    gMap[x][y].fuel = fuel;
+    gMap[x][y].steps = path.slice();
+
+    if (isTileCandidate(x, y)) {
+        if (gPath.found) {
+            if (gPath.discovery < discovery) {
+                gPath.fuel = fuel;
+                gPath.discovery = discovery;
+                gPath.steps = path.slice();
+                return;
+            }
+            if (gPath.fuel > fuel) {
+                gPath.fuel = fuel;
+                gPath.discovery = discovery;
+                gPath.steps = path.slice();
+            }               
+        } else {
+            gPath.found = true;
+            gPath.fuel = fuel;
+            gPath.discovery = discovery;
+            gPath.steps = path.slice();
+        }
+        return;
+    }
+
+    searchMapForward(x, y, direction, fuel, discovery, path.slice());
+    searchMapLeft(x, y, direction, fuel, discovery, path.slice());
+    searchMapRight(x, y, direction, fuel, discovery, path.slice());
+    searchMapBackward(x, y, direction, fuel, discovery, path.slice()); 
+};
+
+var computeDiscovery = function(x, y) {
+    var result = 0;
+
+    var i=1;
+    while((x+i < gWidth) && (gMap[x+i][y].value === TileEnum.UNKNOWN)) {
+        result++;
+        i++;
+    }
+    i=1;
+    while((x-i > 0) && (gMap[x-i][y].value === TileEnum.UNKNOWN)) {
+        result++;
+        i++;
+    }
+    i=1;
+    while((y+i<gHeight) && (gMap[x][y+i].value === TileEnum.UNKNOWN)) {
+        result++;
+        i++;
+    }
+    i=1;
+    while((y-i>0) && (gMap[x][y-i].value === TileEnum.UNKNOWN)) {
+        result++;
+        i++;
+    }
+
+    return result;
 };
 
 //---------------------------------------------------------------------------
