@@ -36,11 +36,9 @@ var MAX_DISCOVERY_ROUNDS = 7;
 var MAX_HOLDING_POSITION = MAX_DISCOVERY_ROUNDS+16;
 var MAX_HOLDING_INCREASE = 2;
 
-var FUEL_TURN = 1;
-var FUEL_FORWARD = 1+FUEL_TURN;
-var FUEL_BACKWARD = 1+FUEL_TURN;
-var FUEL_LEFT = 1+FUEL_TURN+1;
-var FUEL_RIGHT = 1+FUEL_TURN+1;
+var FUEL_IDLE = 1;
+var FUEL_MOVE = 1+FUEL_IDLE;
+var FUEL_TURN = 1+FUEL_IDLE;
 var FUEL_ATTACKED = 50;
 
 var gDirection = DirectionEnum.NORTH;
@@ -920,7 +918,7 @@ var searchMapForward = function(x, y, direction, fuel, path) {
 			x--;
 			break;
 	}
-	fuel += FUEL_FORWARD;
+	fuel += FUEL_MOVE;
 	searchMapMove(x, y, direction, fuel, path);
 };
 
@@ -940,7 +938,7 @@ var searchMapLeft = function(x, y, direction, fuel, path) {
 			break;
 	}
 	direction = (direction+3)%4;
-	fuel += FUEL_LEFT;
+	fuel += FUEL_TURN+FUEL_MOVE;
 	searchMapMove(x, y, direction, fuel, path);
 };
 
@@ -959,7 +957,7 @@ var searchMapBackward = function(x, y, direction, fuel, path) {
 			x++;
 			break;
 	}
-	fuel += FUEL_BACKWARD;
+	fuel += FUEL_MOVE;
 	searchMapMove(x, y, direction, fuel, path);
 };
 
@@ -979,7 +977,7 @@ var searchMapRight = function(x, y, direction, fuel, path) {
 			break;
 	}
 	direction = (direction+1)%4;
-	fuel += FUEL_RIGHT;
+	fuel += FUEL_TURN+FUEL_MOVE;
 	searchMapMove(x, y, direction, fuel, path);
 };
 
