@@ -719,13 +719,15 @@ var seekAndDestroy = function(type) {
 
     // NORTH
     if ((gMap[gX][gY+gLidar[DirectionEnum.NORTH]].value & type) && 
-        !gMap[gX][gY+gLidar[DirectionEnum.NORTH]].periodicEnemy) {
+        !gMap[gX][gY+gLidar[DirectionEnum.NORTH]].periodicEnemy &&
+        gY+gLidar[DirectionEnum.NORTH] !== gHeight-1) {
         result = {found: true, direction: DirectionEnum.NORTH};
         distance = gLidar[DirectionEnum.NORTH];
     }
     // EAST
     if ((gMap[gX+gLidar[DirectionEnum.EAST]][gY].value & type) &&
-        !gMap[gX+gLidar[DirectionEnum.EAST]][gY].periodicEnemy) {
+        !gMap[gX+gLidar[DirectionEnum.EAST]][gY].periodicEnemy &&
+        gX+gLidar[DirectionEnum.EAST] !== gWidth-1) {
         if ((gLidar[DirectionEnum.EAST] < distance) ||
             ((gLidar[DirectionEnum.EAST] === distance && DirectionEnum.EAST === gDirection))) {
             result = {found: true, direction: DirectionEnum.EAST};
@@ -734,7 +736,8 @@ var seekAndDestroy = function(type) {
     }
     // SOUTH
     if ((gMap[gX][gY-gLidar[DirectionEnum.SOUTH]].value & type) &&
-        !gMap[gX][gY-gLidar[DirectionEnum.SOUTH]].periodicEnemy) {
+        !gMap[gX][gY-gLidar[DirectionEnum.SOUTH]].periodicEnemy &&
+        gY-gLidar[DirectionEnum.SOUTH] !== 0) {
         if ((gLidar[DirectionEnum.SOUTH] < distance) ||
             ((gLidar[DirectionEnum.SOUTH] === distance && DirectionEnum.SOUTH === gDirection))) {
             result = {found: true, direction: DirectionEnum.SOUTH};
@@ -743,7 +746,8 @@ var seekAndDestroy = function(type) {
     }
     // WEST
     if ((gMap[gX-gLidar[DirectionEnum.WEST]][gY].value & type) &&
-        !gMap[gX-gLidar[DirectionEnum.WEST]][gY].periodicEnemy) {
+        !gMap[gX-gLidar[DirectionEnum.WEST]][gY].periodicEnemy &&
+        gX-gLidar[DirectionEnum.WEST] !== 0) {
         if ((gLidar[DirectionEnum.WEST] < distance) ||
             ((gLidar[DirectionEnum.WEST] === distance && DirectionEnum.WEST === gDirection))) {
             result = {found: true, direction: DirectionEnum.WEST};
