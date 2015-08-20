@@ -71,7 +71,6 @@ var gAvoidBorder = false;
 
 // TODO: take into account gAttacked !!
 // TODO: when getting the path, we should take the cost of reorientation into account...
-// TODO: try to find a way to avoid identifying periodicEnemy when they are getting away from your position
 
 //---------------------------------------------------------------------------
 // Main Update Function
@@ -782,7 +781,7 @@ var lookForEnemy = function() {
             performNextStep();
         }
     } else {
-        getPath(gX, gY, enemyCandidates, true);
+        getPath(gX, gY, enemyCandidates, false);
         console.log("Next enemy path:");
         printPath(gPath);
         if (!gPath.found) {
@@ -821,7 +820,7 @@ var seekAndDestroy = function (type) {
     // NORTH
     tile = gMap[gX][gY + gLidar[DirectionEnum.NORTH]];
     if ( (tile.value & type) && !tile.periodicEnemy ) {
-        printTile(tile);
+        //printTile(tile);
         if ( !isTileOnBorder(tile) || 
              gState === StateEnum.SEARCHING_TARGET ) 
         {
@@ -840,7 +839,7 @@ var seekAndDestroy = function (type) {
     // EAST
     tile = gMap[gX + gLidar[DirectionEnum.EAST]][gY];
     if ( (tile.value & type) && !tile.periodicEnemy ) {
-        printTile(tile);
+        //printTile(tile);
         if ( !isTileOnBorder(tile) || 
              gState === StateEnum.SEARCHING_TARGET )
         {
@@ -863,7 +862,7 @@ var seekAndDestroy = function (type) {
     // SOUTH
     tile = gMap[gX][gY - gLidar[DirectionEnum.SOUTH]];
     if ( (tile.value & type) && !tile.periodicEnemy ) {
-        printTile(tile);
+        //printTile(tile);
         if ( !isTileOnBorder(tile) || 
              gState === StateEnum.SEARCHING_TARGET )
         {
@@ -886,7 +885,7 @@ var seekAndDestroy = function (type) {
     // WEST
     tile = gMap[gX - gLidar[DirectionEnum.WEST]][gY];
     if ( (tile.value & type) && !tile.periodicEnemy ) {
-        printTile(tile);
+        //printTile(tile);
         if ( !isTileOnBorder(tile) || 
              gState === StateEnum.SEARCHING_TARGET)
         {
@@ -1150,7 +1149,6 @@ var tileCandidates = function (x, y) {
 var enemyCandidates = function (x, y) {
     // if we discovered any periodic enemy, we have to attack them on the border 
     // to minimize the chance to be attacked once there
-    // TODO: waiting next to such tile might even be better
     for(var i = 0; i < gWidth; i++) {
         for (var j = 0; j < gHeight; j++) {
             var tile = gMap[i][j];
@@ -1161,33 +1159,45 @@ var enemyCandidates = function (x, y) {
                     while( (j + k < gHeight) && (gMap[i][j + k].value === TileEnum.EMPTY) ) {
                         k++;
                     }
-                    gMap[i][j + k - 1].isCandidate = true;
-                    //printTile(gMap[i][j+k-1]);
+                    if (gMap[i][j + k].value & TileEnum.WALL) {
+                        gMap[i][j + k - 1].isCandidate = true;
+                        gMap[i][j + k - 1].periodicEnemy = true;
+                        printTile(gMap[i][j + k - 1]);
+                    }
                     k = 1;
                     while((j - k >= 0) && (gMap[i][j - k].value === TileEnum.EMPTY)) {
                         k++;
                     }
-                    gMap[i][j - k + 1].isCandidate = true;
-                    //printTile(gMap[i][j-k+1]);
+                    if (gMap[i][j - k].value & TileEnum.WALL) {
+                        gMap[i][j - k + 1].isCandidate = true;
+                        gMap[i][j - k + 1].periodicEnemy = true;
+                        printTile(gMap[i][j - k + 1]);
+                    }
                 }
                 if ( !tile.hChecked ) {
                     k = 1;
                     while((i + k < gWidth) && (gMap[i + k][j].value === TileEnum.EMPTY)) {
                         k++;
                     }
-                    gMap[i + k - 1][j].isCandidate = true;
-                    //printTile(gMap[i+k-1][j]);
+                    if (gMap[i + k][j].value & TileEnum.WALL) {
+                        gMap[i + k - 1][j].isCandidate = true;
+                        gMap[i + k - 1][j].periodicEnemy = true;
+                        printTile(gMap[i + k - 1][j]);
+                    }
                     k = 1;
                     while((i - k >= 0) && (gMap[i - k][j].value === TileEnum.EMPTY)) {
                         k++;
                     }
-                    gMap[i - k + 1][j].isCandidate = true;
-                    //printTile(gMap[i-k+1][j]);
+                    if (gMap[i - k][j].value & TileEnum.WALL) {
+                        gMap[i - k + 1][j].isCandidate = true;
+                        gMap[i - k + 1][j].periodicEnemy = true;
+                        printTile(gMap[i - k + 1][j]);
+                    }
                 }
             }
         }
     }
-    exploreCandidates(x, y);
+    //exploreCandidates(x, y);
 };
 
 var targetCandidates = function (x, y) {
