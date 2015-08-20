@@ -78,7 +78,7 @@ var gAvoidBorder = false;
 //---------------------------------------------------------------------------
 exports.update = function () {
     try {
-        if (gState === StateEnum.INIT) {
+        if ( gState === StateEnum.INIT ) {
             console.log("Battle begin!");
             console.log("======= Round: " + gRound + " =======");
             initMap();
@@ -87,17 +87,17 @@ exports.update = function () {
             updateMap(true);
         }
         computeTargetTiles();
-        if (!identifyTarget()) {
+        if ( !identifyTarget() ) {
             gTargetTile.value = TileEnum.WALL;
         }
         console.log("x: " + gX + ", y: " + gY + " dir: " + gDirection);
         printMap();
-        if (gTargetConfirmed) {
+        if ( gTargetConfirmed ) {
             fireCannon();
         }
-        if (gState === StateEnum.SEARCHING_POSITION) {
+        if ( gState === StateEnum.SEARCHING_POSITION ) {
             gAvoidBorder = true;
-            while (gState === StateEnum.SEARCHING_POSITION) {
+            while ( gState === StateEnum.SEARCHING_POSITION ) {
                 console.log("Seek and Destroy Enemy!!!");
                 seekAndDestroy(TileEnum.ENEMY);
                 console.log("Seek and Destroy Object!!!");
@@ -106,11 +106,11 @@ exports.update = function () {
                 discoverPosition();
             }
         }
-        if (gState === StateEnum.TAKING_POSITION) {
+        if ( gState === StateEnum.TAKING_POSITION ) {
             gAvoidBorder = true;
             var limitRound = MAX_HOLDING_POSITION + gHoldLonger;
             console.log("Keeping position until round " + limitRound);
-            while (gState === StateEnum.TAKING_POSITION) {
+            while ( gState === StateEnum.TAKING_POSITION ) {
                 console.log("Seek and Destroy Enemy!!!");
                 seekAndDestroy(TileEnum.ENEMY);
                 console.log("Seek and Destroy Object!!!");
@@ -119,9 +119,9 @@ exports.update = function () {
                 takePosition();
             }
         }
-        if (gState === StateEnum.SEARCHING_ENEMY) {
+        if ( gState === StateEnum.SEARCHING_ENEMY ) {
             gAvoidBorder = true;
-            while (gState === StateEnum.SEARCHING_ENEMY) {
+            while ( gState === StateEnum.SEARCHING_ENEMY ) {
                 console.log("Seek and Destroy Enemy!!!");
                 seekAndDestroy(TileEnum.ENEMY);
                 console.log("Seek and Destroy Object!!!");
@@ -132,9 +132,9 @@ exports.update = function () {
                 lookForEnemy();
             }
         }
-        if (gState === StateEnum.SEARCHING_TARGET) {
+        if ( gState === StateEnum.SEARCHING_TARGET ) {
             gAvoidBorder = false;
-            while (gState === StateEnum.SEARCHING_TARGET) {
+            while ( gState === StateEnum.SEARCHING_TARGET ) {
                 console.log("Seek and Destroy Target!!!");
                 seekAndDestroy(TileEnum.TARGET);
                 console.log("Searching Target");
@@ -174,8 +174,8 @@ var identifyTarget = function () {
     gTargetConfirmed = false;
     if ( api.identifyTarget() ) {
         if ( gAvoidBorder && isTileOnBorder(gTargetTile) ) {
-            console.log("On border...");
-            printTile(gTargetTile);
+            // console.log("On border...");
+            // printTile(gTargetTile);
             return true;
         }
         switch( gTargetTile.value ) {
@@ -185,8 +185,7 @@ var identifyTarget = function () {
             }
             // check if the enemy got closer
             if ( gTargetNextTile &&
-                //!gTargetNextTile.periodicEnemy && 
-                ( gTargetNextTile.value === TileEnum.ENEMY || gTargetNextTile.value === TileEnum.OBJECT )) {
+                ( gTargetNextTile.value === TileEnum.ENEMY || gTargetNextTile.value === TileEnum.OBJECT ) ) {
                 gTargetConfirmed = true;
             }
             // for safety reason... might be too late...
@@ -198,7 +197,7 @@ var identifyTarget = function () {
                 // TODO test for waitFor etc...
                 gTargetConfirmed = false;
             }
-            if ( gPath && gPath.waitFor ) {
+            if ( gPath && gPath.waitFor && gTargetTile === gPath.steps[gPath.step] ) {
                 gTargetConfirmed = true;
                 console.log("Spotted enemy has been eliminated!!!");
                 gPath.waitFor = 1;
@@ -206,22 +205,18 @@ var identifyTarget = function () {
             break;
         case TileEnum.OBJECT:
             // to be sure there is no enemy before to kill
+            console.log("From identifyTarget: Seek and Destroy Enemy!!!");
             seekAndDestroy(TileEnum.ENEMY);
-            // not sure if we should do this!
-            // if (gLidar[gDirection] === 1) {
-                gTargetConfirmed = true;
-            // }
+            gTargetConfirmed = true;
             break;
         case TileEnum.WALL|TileEnum.TARGET:
             gTargetTile.value = TileEnum.TARGET;
             // we don't break since we want to check the following case after update
         case TileEnum.TARGET:
             // to be sure there is no enemy before to kill
+            console.log("From identifyTarget: Seek and Destroy Enemy!!!");
             seekAndDestroy(TileEnum.ENEMY);
-            if (gState === StateEnum.SEARCHING_ENEMY ||
-                gState === StateEnum.SEARCHING_TARGET) {
-                gTargetConfirmed = true;
-            }
+            gTargetConfirmed = true;
             break;
         default:
             throw "Error in identifyTarget: " + gTargetTile.value;
@@ -529,6 +524,8 @@ var setEmptyTile = function (tile) {
             break;
         // there is a case where a periodic on a wall is considered as WALL|TARGET because it bumps for 2/3 turns...
         case TileEnum.WALL|TileEnum.TARGET:
+            // TODO: verify this break after test! :) should avoid setting too much
+            break;
         case TileEnum.ENEMY:
             if ( !isTileInView(tile) || !gTargetConfirmed ) {
                 console.log("!!!!!!! periodicEnemy spotted at: " + tile.x + "," + tile.y + " !!!!!!!");
@@ -574,7 +571,9 @@ var isTileOnBorder = function (tile) {
 var setLidarTile = function (x, y, turnBegin) {
     switch (gMap[x][y].value) {
         case TileEnum.UNKNOWN:
-            gMap[x][y].value = TileEnum.OBJECT;
+            if (turnBegin) {
+                gMap[x][y].value = TileEnum.OBJECT;
+            }
             break;
         case TileEnum.EMPTY:
             gMap[x][y].value = TileEnum.ENEMY;
@@ -783,7 +782,7 @@ var lookForEnemy = function() {
             performNextStep();
         }
     } else {
-        getPath(gX, gY, enemyCandidates, false);
+        getPath(gX, gY, enemyCandidates, true);
         console.log("Next enemy path:");
         printPath(gPath);
         if (!gPath.found) {
@@ -909,17 +908,12 @@ var seekAndDestroy = function (type) {
     
     if (result.found) {
         console.log("Type: " + type + " spotted in direction: " + result.direction + " at distance: " + distance);
-        var roundToTurn = Math.abs(gDirection-result.direction);
+        var roundToTurn = Math.abs(gDirection - result.direction);
         if (roundToTurn === 3) {
             // due to the fact that we can turn in both direction...
             roundToTurn = 1;
         }
-        // TODO: some special case might be added here...
-        if ( gState === StateEnum.TAKING_POSITION || 
-             distance <= roundToTurn + MIN_FIRE_DISTANCE || 
-             isComingCloser) {
-            performOrientation(result.direction);
-        }
+        performOrientation(result.direction);
     }
 };
 
@@ -1551,12 +1545,13 @@ var performMoveTo = function(tile) {
     }
 };
 
+// TODO: when turning 180°, the choice between right or left could be optimized not to face wall!
 var performOrientation = function(direction) {
     switch(gDirection) {
         case DirectionEnum.NORTH:
             switch(direction) {
                 case DirectionEnum.SOUTH:
-                    turnLeft();
+                    turnRight();
                     break;
                 case DirectionEnum.EAST:
                     turnRight();
@@ -1569,7 +1564,7 @@ var performOrientation = function(direction) {
         case DirectionEnum.SOUTH:
             switch(direction) {
                 case DirectionEnum.NORTH:
-                    turnLeft();
+                    turnRight();
                     break;
                 case DirectionEnum.EAST:
                     turnLeft();
@@ -1588,7 +1583,7 @@ var performOrientation = function(direction) {
                     turnRight();
                     break;
                 case DirectionEnum.WEST:
-                    turnLeft();
+                    turnRight();
                     break;
             }
             break;
@@ -1601,7 +1596,7 @@ var performOrientation = function(direction) {
                     turnLeft();
                     break;
                 case DirectionEnum.EAST:
-                    turnLeft();
+                    turnRight();
                     break;
             }
             break;
