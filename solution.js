@@ -344,7 +344,9 @@ var updateMap = function (turnBegin) {
     var yMax = gY + gLidar[DirectionEnum.NORTH];
 
     setLidarTile(gX, yMin, turnBegin);
-    gMap[gX][yMin].vChecked = true;
+    if ( turnBegin ) {
+        gMap[gX][yMin].vChecked = true;
+    }
     if (gMap[gX][yMin].vChecked && gMap[gX][yMin].hChecked) {
         delete gMap[gX][yMin].periodicEnemy;
     }
@@ -356,7 +358,9 @@ var updateMap = function (turnBegin) {
         }
     }
     setLidarTile(gX, yMax, turnBegin);
-    gMap[gX][yMax].vChecked = true;
+    if ( turnBegin ) {
+        gMap[gX][yMax].vChecked = true;
+    }
     if (gMap[gX][yMax].vChecked && gMap[gX][yMax].hChecked) {
         delete gMap[gX][yMax].periodicEnemy;
     }
@@ -366,7 +370,9 @@ var updateMap = function (turnBegin) {
     var xMax = gX + gLidar[DirectionEnum.EAST];
 
     setLidarTile(xMin, gY, turnBegin);
-    gMap[xMin][gY].hChecked = true;
+    if (turnBegin){
+        gMap[xMin][gY].hChecked = true;
+    }
     if (gMap[xMin][gY].vChecked && gMap[xMin][gY].hChecked) {
         delete gMap[xMin][gY].periodicEnemy;
     }
@@ -378,7 +384,9 @@ var updateMap = function (turnBegin) {
         }
     }
     setLidarTile(xMax, gY, turnBegin);
-    gMap[xMax][gY].hChecked = true;
+    if (turnBegin){
+        gMap[xMax][gY].hChecked = true;
+    }
     if (gMap[xMax][gY].vChecked && gMap[xMax][gY].hChecked) {
         delete gMap[xMax][gY].periodicEnemy;
     }
@@ -517,6 +525,9 @@ var setEmptyTile = function (tile) {
         case TileEnum.UNKNOWN:
             break;
         case TileEnum.EMPTY:
+            if ( !tile.vChecked && !tile.hChecked) {
+                delete tile.periodicEnemy;
+            }
             break;
         case TileEnum.OBJECT:
             // TODO: verify this break after test! :) should avoid setting too much
@@ -526,11 +537,22 @@ var setEmptyTile = function (tile) {
             // TODO: verify this break after test! :) should avoid setting too much
             break;
         case TileEnum.ENEMY:
-            if ( !isTileInView(tile) || !gTargetConfirmed ) {
+            if ( !isTileInView(tile) && !tile.periodicEnemy) {
                 console.log("!!!!!!! periodicEnemy spotted at: " + tile.x + "," + tile.y + " !!!!!!!");
                 tile.periodicEnemy = true;
+                propagateEnemyDetection(tile);
                 tile.hChecked = false;
                 tile.vChecked = false;
+            } else {
+                if ( !gTargetConfirmed && 
+                     getNextTile(tile).value !== TileEnum.ENEMY &&
+                     !tile.periodicEnemy ) {
+                    console.log("!!!!!!! periodicEnemy spotted at: " + tile.x + "," + tile.y + " !!!!!!!");
+                    tile.periodicEnemy = true;
+                    propagateEnemyDetection(tile);
+                    tile.hChecked = false;
+                    tile.vChecked = false;
+                }
             }
             break;
         case TileEnum.TARGET:
@@ -558,6 +580,64 @@ var isTileInView = function (tile) {
             break;
     }
     return result;
+};
+
+var getNextTile = function (tile) {
+    switch(gDirection) {
+        case DirectionEnum.NORTH:
+            return gMap[tile.x][tile.y + 1];
+        case DirectionEnum.EAST:
+            return gMap[tile.x + 1][tile.y];
+        case DirectionEnum.SOUTH:
+            return gMap[tile.x][tile.y - 1];
+        case DirectionEnum.WEST:
+            return gMap[tile.x - 1][tile.y];
+    }
+};
+
+var propagateEnemyDetection = function (fromTile) {
+    var i;
+
+    if ( gX === fromTile.x ) {
+        i = 1;
+        while ( fromTile.x + i < gWidth &&
+                (gMap[fromTile.x + i][fromTile.y].value === TileEnum.EMPTY ||
+                 gMap[fromTile.x + i][fromTile.y].value === TileEnum.ENEMY ||
+                 gMap[fromTile.x + i][fromTile.y].value === TileEnum.TARGET )) {
+            gMap[fromTile.x + i][fromTile.y].periodicEnemy = true;
+            gMap[fromTile.x + i][fromTile.y].hChecked = false;
+            i++;
+        }
+        i = 1;
+        while ( fromTile.x - i >= 0 &&
+                (gMap[fromTile.x - i][fromTile.y].value === TileEnum.EMPTY ||
+                 gMap[fromTile.x - i][fromTile.y].value === TileEnum.ENEMY ||
+                 gMap[fromTile.x - i][fromTile.y].value === TileEnum.TARGET )) {
+            gMap[fromTile.x - i][fromTile.y].periodicEnemy = true;
+            gMap[fromTile.x - i][fromTile.y].hChecked = false;
+            i++;
+        }
+    }
+    if ( gY === fromTile.y ) {
+        i = 1;
+        while ( fromTile.y + i < gHeight &&
+                (gMap[fromTile.x][fromTile.y + i].value === TileEnum.EMPTY ||
+                 gMap[fromTile.x][fromTile.y + i].value === TileEnum.ENEMY ||
+                 gMap[fromTile.x][fromTile.y + i].value === TileEnum.TARGET )) {
+            gMap[fromTile.x][fromTile.y + i].periodicEnemy = true;
+            gMap[fromTile.x][fromTile.y + i].vChecked = false;
+            i++;
+        }
+        i = 1;
+        while ( fromTile.y - i >= 0 &&
+                (gMap[fromTile.x][fromTile.y - i].value === TileEnum.EMPTY ||
+                 gMap[fromTile.x][fromTile.y - i].value === TileEnum.ENEMY ||
+                 gMap[fromTile.x][fromTile.y - i].value === TileEnum.TARGET )) {
+            gMap[fromTile.x][fromTile.y - i].periodicEnemy = true;
+            gMap[fromTile.x][fromTile.y - i].vChecked = false;
+            i++;
+        }
+    }
 };
 
 var isTileOnBorder = function (tile) {
@@ -607,7 +687,7 @@ var computeTargetTiles = function() {
             break;
         case DirectionEnum.EAST:
             gTargetTile = gMap[gX + gLidar[gDirection]][gY];
-            if (gX+gLidar[gDirection] + 1 < gWidth) {
+            if (gX + gLidar[gDirection] + 1 < gWidth) {
                 gTargetNextTile = gMap[gX + gLidar[gDirection] + 1][gY];
             } else {
                 gTargetNextTile = undefined;
@@ -776,7 +856,8 @@ var lookForEnemy = function() {
             if ( gPath.step === gPath.steps.length - 1 && currentStep.periodicEnemy ) {
                 console.log("Before an enemy tile!!!");
                 gPath.waitFor = computeWaitEnemy(currentStep);
-                throw {isAction: true, action: "Waiting Enemy !!!"};
+                //throw {isAction: true, action: "Waiting Enemy !!!"};
+                return;
             }
             performNextStep();
         }
@@ -1154,21 +1235,29 @@ var enemyCandidates = function (x, y) {
             var tile = gMap[i][j];
             if ( tile.periodicEnemy ) {
                 var k;
+                // To avoid false enemypath from propagateEnemyDetection application
+                if ( !tile.vChecked && !tile.hChecked) {
+                    //console.log("Avoiding Tile:");
+                    //printTile(tile);
+                    continue;
+                }
                 if ( !tile.vChecked ) {
                     k = 1;
-                    while( (j + k < gHeight) && (gMap[i][j + k].value === TileEnum.EMPTY) ) {
+                    while( (j + k < gHeight - 1) && (gMap[i][j + k].value === TileEnum.EMPTY) ) {
                         k++;
                     }
-                    if (gMap[i][j + k].value & TileEnum.WALL) {
+                    if ( gMap[i][j + k].value & TileEnum.WALL ||
+                         gMap[i][j + k].value & TileEnum.OBJECT ) {
                         gMap[i][j + k - 1].isCandidate = true;
                         gMap[i][j + k - 1].periodicEnemy = true;
                         printTile(gMap[i][j + k - 1]);
                     }
                     k = 1;
-                    while((j - k >= 0) && (gMap[i][j - k].value === TileEnum.EMPTY)) {
+                    while( (j - k > 0) && (gMap[i][j - k].value === TileEnum.EMPTY) ) {
                         k++;
                     }
-                    if (gMap[i][j - k].value & TileEnum.WALL) {
+                    if ( gMap[i][j - k].value & TileEnum.WALL ||
+                         gMap[i][j - k].value & TileEnum.OBJECT ) {
                         gMap[i][j - k + 1].isCandidate = true;
                         gMap[i][j - k + 1].periodicEnemy = true;
                         printTile(gMap[i][j - k + 1]);
@@ -1176,19 +1265,21 @@ var enemyCandidates = function (x, y) {
                 }
                 if ( !tile.hChecked ) {
                     k = 1;
-                    while((i + k < gWidth) && (gMap[i + k][j].value === TileEnum.EMPTY)) {
+                    while( (i + k < gWidth - 1) && (gMap[i + k][j].value === TileEnum.EMPTY) ) {
                         k++;
                     }
-                    if (gMap[i + k][j].value & TileEnum.WALL) {
+                    if ( gMap[i + k][j].value & TileEnum.WALL ||
+                         gMap[i + k][j].value & TileEnum.OBJECT ) {
                         gMap[i + k - 1][j].isCandidate = true;
                         gMap[i + k - 1][j].periodicEnemy = true;
                         printTile(gMap[i + k - 1][j]);
                     }
                     k = 1;
-                    while((i - k >= 0) && (gMap[i - k][j].value === TileEnum.EMPTY)) {
+                    while( (i - k > 0) && (gMap[i - k][j].value === TileEnum.EMPTY) ) {
                         k++;
                     }
-                    if (gMap[i - k][j].value & TileEnum.WALL) {
+                    if ( gMap[i - k][j].value & TileEnum.WALL ||
+                         gMap[i - k][j].value & TileEnum.OBJECT ) {
                         gMap[i - k + 1][j].isCandidate = true;
                         gMap[i - k + 1][j].periodicEnemy = true;
                         printTile(gMap[i - k + 1][j]);
@@ -1366,6 +1457,10 @@ var searchMapMove = function(x, y, direction, fuel, path, useDiscovery) {
         return;
     }
 
+    if ( gMap[x][y].periodicEnemy ) {
+        return;
+    }
+
     // don't go past the current maximum!
     if ( gPath.found && gPath.fuel < fuel) {
         return;
@@ -1484,7 +1579,8 @@ var performMoveTo = function(tile) {
     } else if (tile.y > gY) {
         goingTo = DirectionEnum.NORTH;
     } else {
-        throw "Problem in move...";
+        gPath.step++;
+        throw {isAction: true, action: "Turning Left!", moved: false};
     }
 
     switch(gDirection) {
