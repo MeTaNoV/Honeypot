@@ -47,6 +47,9 @@ var FUEL_MOVE = 1 + FUEL_IDLE;
 var FUEL_TURN = 1 + FUEL_IDLE;
 var FUEL_ATTACKED = 50;
 
+var HPERIODIC = 1;
+var VPERIODIC = 2;
+
 var gDirection = DirectionEnum.NORTH;
 var gMap = [];
 var gWidth = 0;
@@ -68,6 +71,7 @@ var gHoldLonger = 0;
 var gTargetConfirmed = false;
 var gAttacked = false;
 var gAvoidBorder = false;
+var gAvoidEnemy = true;
 
 // TODO: take into account gAttacked !!
 // TODO: when getting the path, we should take the cost of reorientation into account...
@@ -120,6 +124,7 @@ exports.update = function () {
         }
         if ( gState === StateEnum.SEARCHING_ENEMY ) {
             gAvoidBorder = true;
+            gAvoidEnemy = true;
             while ( gState === StateEnum.SEARCHING_ENEMY ) {
                 console.log("Seek and Destroy Enemy!!!");
                 seekAndDestroy(TileEnum.ENEMY);
@@ -182,19 +187,37 @@ var identifyTarget = function () {
             if ( gState === StateEnum.TAKING_POSITION ) {
                 gTargetConfirmed = true;
             }
-            // check if the enemy got closer
-            if ( gTargetNextTile &&
-                ( gTargetNextTile.value === TileEnum.ENEMY || gTargetNextTile.value === TileEnum.OBJECT ) ) {
-                gTargetConfirmed = true;
-            }
             // for safety reason... might be too late...
             if ( gLidar[gDirection] <= MIN_FIRE_DISTANCE ) {
                 gTargetConfirmed = true;
             }
+            // if a tile has been checked in both direction, we can safely fire!
+            // TODO is obsolete because of the next test! 
+            if ( gTargetTile.vChecked && gTargetTile.hChecked) {
+                console.log("Let's rock your ASS!! :)");
+                gTargetConfirmed = true;
+            }
             // we can override the previous result if we are on a periodic enemy tile!
             if ( gTargetTile.periodicEnemy ) {
-                // TODO test for waitFor etc...
-                gTargetConfirmed = false;
+                if ( gDirection === DirectionEnum.NORTH || gDirection === DirectionEnum.SOUTH ) {
+                    if ( gTargetTile.periodicEnemy & HPERIODIC ) {
+                        gTargetConfirmed = false;
+                    } else {
+                        gTargetConfirmed = true;
+                    }
+                }
+                if ( gDirection === DirectionEnum.EAST || gDirection === DirectionEnum.WEST ) {
+                    if ( gTargetTile.periodicEnemy & VPERIODIC ) {
+                        gTargetConfirmed = false;
+                    } else {
+                        gTargetConfirmed = true;
+                    }
+                }
+            }
+            // check if the enemy got closer
+            if ( gTargetNextTile &&
+                ( gTargetNextTile.value === TileEnum.ENEMY || gTargetNextTile.value === TileEnum.OBJECT ) ) {
+                gTargetConfirmed = true;
             }
             if ( gPath && gPath.waitFor && gTargetTile === gPath.steps[gPath.step] ) {
                 gTargetConfirmed = true;
@@ -346,6 +369,7 @@ var updateMap = function (turnBegin) {
     setLidarTile(gX, yMin, turnBegin);
     if ( turnBegin ) {
         gMap[gX][yMin].vChecked = true;
+        gMap[gX][yMin].periodicEnemy &= HPERIODIC;
     }
     if (gMap[gX][yMin].vChecked && gMap[gX][yMin].hChecked) {
         delete gMap[gX][yMin].periodicEnemy;
@@ -353,6 +377,7 @@ var updateMap = function (turnBegin) {
     for (var i = yMin + 1; i < yMax; i++) {
         setEmptyTile(gMap[gX][i]);
         gMap[gX][i].vChecked = true;
+        gMap[gX][i].periodicEnemy &= HPERIODIC;
         if (gMap[gX][i].vChecked && gMap[gX][i].hChecked) {
             delete gMap[gX][i].periodicEnemy;
         }
@@ -360,6 +385,7 @@ var updateMap = function (turnBegin) {
     setLidarTile(gX, yMax, turnBegin);
     if ( turnBegin ) {
         gMap[gX][yMax].vChecked = true;
+        gMap[gX][yMax].periodicEnemy &= HPERIODIC;
     }
     if (gMap[gX][yMax].vChecked && gMap[gX][yMax].hChecked) {
         delete gMap[gX][yMax].periodicEnemy;
@@ -372,6 +398,7 @@ var updateMap = function (turnBegin) {
     setLidarTile(xMin, gY, turnBegin);
     if (turnBegin){
         gMap[xMin][gY].hChecked = true;
+        gMap[xMin][gY].periodicEnemy &= VPERIODIC;
     }
     if (gMap[xMin][gY].vChecked && gMap[xMin][gY].hChecked) {
         delete gMap[xMin][gY].periodicEnemy;
@@ -379,6 +406,7 @@ var updateMap = function (turnBegin) {
     for (var j= xMin + 1; j < xMax; j++) {
         setEmptyTile(gMap[j][gY]);
         gMap[j][gY].hChecked = true;
+        gMap[j][gY].periodicEnemy &= VPERIODIC;
         if (gMap[j][gY].vChecked && gMap[j][gY].hChecked) {
             delete gMap[j][gY].periodicEnemy;
         }
@@ -386,6 +414,7 @@ var updateMap = function (turnBegin) {
     setLidarTile(xMax, gY, turnBegin);
     if (turnBegin){
         gMap[xMax][gY].hChecked = true;
+        gMap[xMax][gY].periodicEnemy &= VPERIODIC;
     }
     if (gMap[xMax][gY].vChecked && gMap[xMax][gY].hChecked) {
         delete gMap[xMax][gY].periodicEnemy;
@@ -467,11 +496,19 @@ var printMap = function() {
             if ((j === gX) && ((gHeight - 1 - i) === gY)) {
                 s += 'X';
             } else if (gMap[j][gHeight - 1 - i].periodicEnemy) {
-                s += 'S';
+                if ( gMap[j][gHeight - 1 - i].periodicEnemy === HPERIODIC ) {
+                    s += 'H';
+                } else if ( gMap[j][gHeight - 1 - i].periodicEnemy === VPERIODIC ) {
+                    s += 'V';
+                } else if ( gMap[j][gHeight - 1 - i].periodicEnemy === VPERIODIC|HPERIODIC ) {
+                    s += '#';
+                } else {
+                    throw "Unknown periodicEnemy value...";
+                }
             } else {
                 switch(gMap[j][gHeight - 1 - i].value) {
                     case TileEnum.UNKNOWN:
-                        s += '-';
+                        s += '.';
                         break;
                     case TileEnum.EMPTY:
                         s += '0';
@@ -523,35 +560,80 @@ var printPath = function(path) {
 var setEmptyTile = function (tile) {
     switch ( tile.value ) {
         case TileEnum.UNKNOWN:
-            break;
-        case TileEnum.EMPTY:
-            if ( !tile.vChecked && !tile.hChecked) {
-                delete tile.periodicEnemy;
+        case TileEnum.OBJECT:
+        case TileEnum.WALL|TileEnum.TARGET:
+            // if a neighbour is next to it, it is a potential threat, 
+            if (gMap[tile.x][tile.y + 1].periodicEnemy & VPERIODIC ||
+                gMap[tile.x][tile.y - 1].periodicEnemy & VPERIODIC ) {
+                console.log("Tile has been infected... :)");
+                printTile(tile);
+                tile.periodicEnemy |= VPERIODIC;
+                propagateVDetection(tile);
+            }
+            if (gMap[tile.x + 1][tile.y].periodicEnemy & HPERIODIC ||
+                gMap[tile.x - 1][tile.y].periodicEnemy & HPERIODIC ) {
+                console.log("Tile has been infected... :)");
+                printTile(tile);
+                tile.periodicEnemy |= HPERIODIC;
+                propagateHDetection(tile);
+            }
+            // if surrounded by wall, we can check this direction
+            if (gMap[tile.x][tile.y + 1].value&TileEnum.WALL &&
+                gMap[tile.x][tile.y - 1].value&TileEnum.WALL) {
+                tile.vChecked = true;
+                tile.periodicEnemy &= HPERIODIC;
+                console.log("Tile is walled!!! :)");
+                printTile(tile);
+            }
+            if (gMap[tile.x + 1][tile.y].value&TileEnum.WALL &&
+                gMap[tile.x - 1][tile.y].value&TileEnum.WALL) {
+                tile.hChecked = true;
+                tile.periodicEnemy &= VPERIODIC;
+                console.log("Tile is walled!!! :)");
+                printTile(tile);
             }
             break;
-        case TileEnum.OBJECT:
-            // TODO: verify this break after test! :) should avoid setting too much
-            break;
-        // there is a case where a periodic on a wall is considered as WALL|TARGET because it bumps for 2/3 turns...
-        case TileEnum.WALL|TileEnum.TARGET:
-            // TODO: verify this break after test! :) should avoid setting too much
+        case TileEnum.EMPTY:
+            // if surrounded by wall, we can check this direction
+            if (gMap[tile.x][tile.y + 1].value&TileEnum.WALL &&
+                gMap[tile.x][tile.y - 1].value&TileEnum.WALL) {
+                tile.vChecked = true;
+                tile.periodicEnemy &= HPERIODIC;
+                console.log("Tile is walled!!! :)");
+                printTile(tile);
+            }
+            if (gMap[tile.x + 1][tile.y].value&TileEnum.WALL &&
+                gMap[tile.x - 1][tile.y].value&TileEnum.WALL) {
+                tile.hChecked = true;
+                tile.periodicEnemy &= VPERIODIC;
+                console.log("Tile is walled!!! :)");
+                printTile(tile);
+            }
             break;
         case TileEnum.ENEMY:
             if ( !isTileInView(tile) && !tile.periodicEnemy) {
                 console.log("!!!!!!! periodicEnemy spotted at: " + tile.x + "," + tile.y + " !!!!!!!");
-                tile.periodicEnemy = true;
+                if (gX === tile.x) {
+                    tile.periodicEnemy = tile.periodicEnemy | HPERIODIC;
+                    tile.hChecked = false;
+                } else {
+                    tile.periodicEnemy = tile.periodicEnemy | VPERIODIC;
+                    tile.vChecked = false;
+                }
                 propagateEnemyDetection(tile);
-                tile.hChecked = false;
-                tile.vChecked = false;
             } else {
                 if ( !gTargetConfirmed && 
                      getNextTile(tile).value !== TileEnum.ENEMY &&
                      !tile.periodicEnemy ) {
                     console.log("!!!!!!! periodicEnemy spotted at: " + tile.x + "," + tile.y + " !!!!!!!");
-                    tile.periodicEnemy = true;
+                    if (gX === tile.x) {
+                        tile.periodicEnemy = tile.periodicEnemy | HPERIODIC;
+                        tile.hChecked = false;
+                    } else {
+                        tile.periodicEnemy = tile.periodicEnemy | VPERIODIC;
+                        tile.vChecked = false;
+                    }
                     propagateEnemyDetection(tile);
-                    tile.hChecked = false;
-                    tile.vChecked = false;
                 }
             }
             break;
@@ -602,18 +684,16 @@ var propagateEnemyDetection = function (fromTile) {
         i = 1;
         while ( fromTile.x + i < gWidth &&
                 (gMap[fromTile.x + i][fromTile.y].value === TileEnum.EMPTY ||
-                 gMap[fromTile.x + i][fromTile.y].value === TileEnum.ENEMY ||
-                 gMap[fromTile.x + i][fromTile.y].value === TileEnum.TARGET )) {
-            gMap[fromTile.x + i][fromTile.y].periodicEnemy = true;
+                 gMap[fromTile.x + i][fromTile.y].value === TileEnum.ENEMY )) {
+            gMap[fromTile.x + i][fromTile.y].periodicEnemy |= fromTile.periodicEnemy;
             gMap[fromTile.x + i][fromTile.y].hChecked = false;
             i++;
         }
         i = 1;
         while ( fromTile.x - i >= 0 &&
                 (gMap[fromTile.x - i][fromTile.y].value === TileEnum.EMPTY ||
-                 gMap[fromTile.x - i][fromTile.y].value === TileEnum.ENEMY ||
-                 gMap[fromTile.x - i][fromTile.y].value === TileEnum.TARGET )) {
-            gMap[fromTile.x - i][fromTile.y].periodicEnemy = true;
+                 gMap[fromTile.x - i][fromTile.y].value === TileEnum.ENEMY )) {
+            gMap[fromTile.x - i][fromTile.y].periodicEnemy |= fromTile.periodicEnemy;
             gMap[fromTile.x - i][fromTile.y].hChecked = false;
             i++;
         }
@@ -622,21 +702,53 @@ var propagateEnemyDetection = function (fromTile) {
         i = 1;
         while ( fromTile.y + i < gHeight &&
                 (gMap[fromTile.x][fromTile.y + i].value === TileEnum.EMPTY ||
-                 gMap[fromTile.x][fromTile.y + i].value === TileEnum.ENEMY ||
-                 gMap[fromTile.x][fromTile.y + i].value === TileEnum.TARGET )) {
-            gMap[fromTile.x][fromTile.y + i].periodicEnemy = true;
+                 gMap[fromTile.x][fromTile.y + i].value === TileEnum.ENEMY )) {
+            gMap[fromTile.x][fromTile.y + i].periodicEnemy |= fromTile.periodicEnemy;
             gMap[fromTile.x][fromTile.y + i].vChecked = false;
             i++;
         }
         i = 1;
         while ( fromTile.y - i >= 0 &&
                 (gMap[fromTile.x][fromTile.y - i].value === TileEnum.EMPTY ||
-                 gMap[fromTile.x][fromTile.y - i].value === TileEnum.ENEMY ||
-                 gMap[fromTile.x][fromTile.y - i].value === TileEnum.TARGET )) {
-            gMap[fromTile.x][fromTile.y - i].periodicEnemy = true;
+                 gMap[fromTile.x][fromTile.y - i].value === TileEnum.ENEMY )) {
+            gMap[fromTile.x][fromTile.y - i].periodicEnemy |= fromTile.periodicEnemy;
             gMap[fromTile.x][fromTile.y - i].vChecked = false;
             i++;
         }
+    }
+};
+
+var propagateHDetection = function (fromTile) {
+    var i = 1;
+    while ( fromTile.x + i < gWidth &&
+            (gMap[fromTile.x + i][fromTile.y].value === TileEnum.EMPTY ||
+             gMap[fromTile.x + i][fromTile.y].value === TileEnum.ENEMY )) {
+        gMap[fromTile.x + i][fromTile.y].periodicEnemy |= HPERIODIC;
+        i++;
+    }
+    i = 1;
+    while ( fromTile.x - i >= 0 &&
+            (gMap[fromTile.x - i][fromTile.y].value === TileEnum.EMPTY ||
+             gMap[fromTile.x - i][fromTile.y].value === TileEnum.ENEMY )) {
+        gMap[fromTile.x - i][fromTile.y].periodicEnemy |= HPERIODIC;
+        i++;
+    }
+};
+
+var propagateVDetection = function (fromTile) {
+    var i = 1;
+    while ( fromTile.y + i < gHeight &&
+            (gMap[fromTile.x][fromTile.y + i].value === TileEnum.EMPTY ||
+             gMap[fromTile.x][fromTile.y + i].value === TileEnum.ENEMY )) {
+        gMap[fromTile.x][fromTile.y + i].periodicEnemy |= VPERIODIC;
+        i++;
+    }
+    i = 1;
+    while ( fromTile.y - i >= 0 &&
+            (gMap[fromTile.x][fromTile.y - i].value === TileEnum.EMPTY ||
+             gMap[fromTile.x][fromTile.y - i].value === TileEnum.ENEMY )) {
+        gMap[fromTile.x][fromTile.y - i].periodicEnemy |= VPERIODIC;
+        i++;
     }
 };
 
@@ -786,11 +898,11 @@ var discoverPosition = function () {
         gPath = null;
         gState = StateEnum.TAKING_POSITION;
     } else {
-        exploreMap();
+        exploreMap(true);
     }
 };
 
-var exploreMap = function () {
+var exploreMap = function (useDiscovery) {
     if ( gPath ) {
         if (gPath.isArrived) {
             console.log("Arrived...");
@@ -799,12 +911,13 @@ var exploreMap = function () {
             performNextStep();
         }
     } else {
-        getPath(gX, gY, exploreCandidates, true);
+        getPath(gX, gY, exploreCandidates, useDiscovery);
         console.log("Next exploration path:");
         printPath(gPath);
         if (!gPath.found) {
             console.log("None found...");
-            gState = StateEnum.SEARCHING_TARGET;
+            console.log("Direct confrontation...");
+            gAvoidEnemy = false;
             gPath = null;
         }
     }
@@ -868,7 +981,7 @@ var lookForEnemy = function() {
         if (!gPath.found) {
             console.log("None found...");
             gPath = null;
-            exploreMap();
+            exploreMap(false);
         }
     }
 };
@@ -887,7 +1000,10 @@ var lookForTarget = function() {
         console.log("Next target path:");
         printPath(gPath);
         if (!gPath.found) {
-            throw "We missed something...";
+            console.log("None found...");
+            gPath = null;
+            gState = StateEnum.SEARCHING_ENEMY;
+            throw "We still missed something! :)";
         }
     }
 };
@@ -1203,10 +1319,10 @@ var checkTilesAtDistance = function(distance) {
         if ( isTilePossibleCandidate(gX + i, gY + distance - i) ) {
             gMap[gX + i][gY + distance - i].isCandidate = true;
         }
-        if ( isTilePossibleCandidate(gX - i, gY - distance + i)) {
+        if ( isTilePossibleCandidate(gX - i, gY - distance + i) ) {
             gMap[gX - i][gY - distance + i].isCandidate = true;
         }
-        if ( isTilePossibleCandidate(gX + i, gY - distance + i)) {
+        if ( isTilePossibleCandidate(gX + i, gY - distance + i) ) {
             gMap[gX + i][gY - distance + i].isCandidate = true;
         }
     }
@@ -1220,7 +1336,11 @@ var isTilePossibleCandidate = function(x, y) {
         return false;
     }
     tile = gMap[x][y];
-    return (tile.value === TileEnum.EMPTY) && (!tile.periodicEnemy) && (!tile.vChecked || !tile.hChecked);
+    var result = (tile.value === TileEnum.EMPTY) && (!tile.vChecked || !tile.hChecked);
+    if ( gAvoidEnemy ) {
+        result = result && (!tile.periodicEnemy);
+    }
+    return result;
 };
 
 var tileCandidates = function (x, y) {
@@ -1247,9 +1367,10 @@ var enemyCandidates = function (x, y) {
                         k++;
                     }
                     if ( gMap[i][j + k].value & TileEnum.WALL ||
-                         gMap[i][j + k].value & TileEnum.OBJECT ) {
+                         gMap[i][j + k].value & TileEnum.OBJECT || 
+                         j + k === gHeight - 1) {
                         gMap[i][j + k - 1].isCandidate = true;
-                        gMap[i][j + k - 1].periodicEnemy = true;
+                        gMap[i][j + k - 1].periodicEnemy |= tile.periodicEnemy;
                         printTile(gMap[i][j + k - 1]);
                     }
                     k = 1;
@@ -1257,9 +1378,10 @@ var enemyCandidates = function (x, y) {
                         k++;
                     }
                     if ( gMap[i][j - k].value & TileEnum.WALL ||
-                         gMap[i][j - k].value & TileEnum.OBJECT ) {
+                         gMap[i][j - k].value & TileEnum.OBJECT || 
+                         j - k === 0) {
                         gMap[i][j - k + 1].isCandidate = true;
-                        gMap[i][j - k + 1].periodicEnemy = true;
+                        gMap[i][j - k + 1].periodicEnemy |= tile.periodicEnemy;
                         printTile(gMap[i][j - k + 1]);
                     }
                 }
@@ -1269,9 +1391,10 @@ var enemyCandidates = function (x, y) {
                         k++;
                     }
                     if ( gMap[i + k][j].value & TileEnum.WALL ||
-                         gMap[i + k][j].value & TileEnum.OBJECT ) {
+                         gMap[i + k][j].value & TileEnum.OBJECT ||
+                         i + k === gWidth - 1) {
                         gMap[i + k - 1][j].isCandidate = true;
-                        gMap[i + k - 1][j].periodicEnemy = true;
+                        gMap[i + k - 1][j].periodicEnemy |= tile.periodicEnemy;
                         printTile(gMap[i + k - 1][j]);
                     }
                     k = 1;
@@ -1279,9 +1402,10 @@ var enemyCandidates = function (x, y) {
                         k++;
                     }
                     if ( gMap[i - k][j].value & TileEnum.WALL ||
-                         gMap[i - k][j].value & TileEnum.OBJECT ) {
+                         gMap[i - k][j].value & TileEnum.OBJECT ||
+                         i - k === 0) {
                         gMap[i - k + 1][j].isCandidate = true;
-                        gMap[i - k + 1][j].periodicEnemy = true;
+                        gMap[i - k + 1][j].periodicEnemy |= tile.periodicEnemy;
                         printTile(gMap[i - k + 1][j]);
                     }
                 }
